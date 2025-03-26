@@ -1,9 +1,11 @@
 import sys
+import json
 
 from typing import Generator, Iterable
 from tagger.interrogator.interrogator import AbsInterrogator
 from PIL import Image
 from pathlib import Path
+from typing import Dict
 import argparse
 
 from tagger.interrogators import interrogators
@@ -50,6 +52,11 @@ parser.add_argument(
     default='wd14-convnextv2.v1',
     metavar='MODELNAME',
     help='modelname to use for prediction (default is wd14-convnextv2.v1)')
+parser.add_argument(
+    '--json',
+    action='store_true',
+    help='output json instead of plaintext'
+)
 args = parser.parse_args()
 
 # get interrogator configs
@@ -98,6 +105,14 @@ def explore_image_files(folder_path: Path) -> Generator[Path, None, None]:
         elif args.recursive and path.is_dir():
             yield from explore_image_files(path)
 
+def generate_output_string(image_path: str, tags: Dict):
+    if args.json:
+        return json.dumps({"file":str(image_path),"tags":tags})
+    else:
+        return ', '.join(tags.keys())
+
+
+
 if args.dir:
     root_path = Path(args.dir)
     for image_path in explore_image_files(root_path):
@@ -111,15 +126,11 @@ if args.dir:
         print('processing:', image_path)
         tags = image_interrogate(image_path, not args.rawtag, parse_exclude_tags())
 
-        tags_str = ', '.join(tags.keys())
-
         with open(caption_path, 'w') as fp:
-            fp.write(tags_str)
+            fp.write(generate_output_string(image_path, tags))
 
 if args.file:
     tags = image_interrogate(Path(args.file), not args.rawtag, parse_exclude_tags())
     print(file=sys.stderr)
-    tags_str = ', '.join(tags.keys())
-    print(tags_str)
-
+    print(generate_output_string(args.file, tags))
 
