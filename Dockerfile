@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy requirements first for better caching
 COPY requirements-cloud.txt .
 RUN pip install --no-cache-dir -r requirements-cloud.txt
+RUN pip install --no-cache-dir google-cloud-storage==2.16.0
 
 # Copy function code
 COPY main.py vector_generator.py ./
