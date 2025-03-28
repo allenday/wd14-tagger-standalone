@@ -34,7 +34,7 @@ ENV FUNCTION_TARGET=process_pubsub_message
 ENV FUNCTION_SIGNATURE_TYPE=cloudevent
 
 # Cloud Function entry point
-CMD ["functions-framework", "--target=${FUNCTION_TARGET}", "--signature-type=${FUNCTION_SIGNATURE_TYPE}"]
+CMD ["functions-framework", "--target=process_pubsub_message", "--signature-type=cloudevent"]
 
 # Expose port for functions-framework
 EXPOSE 8080
