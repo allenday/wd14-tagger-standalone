@@ -28,14 +28,30 @@ This Google Cloud Function receives images via Pub/Sub, analyzes them using vari
 
 ### Environment Variables
 
-The cloud function requires the following environment variables:
+The cloud service requires the following environment variables (see `.env.example`):
 
 ```
-GCS_BUCKET_NAME=tagger-images
-QDRANT_URL=your-qdrant-host-or-ip
+# Google Cloud Platform configuration
+GCP_PROJECT_ID=your-project-id
+GCP_REGION=us-central1
+GCS_BUCKET_NAME=your-bucket-name
+
+# Qdrant configuration
+QDRANT_URL=your-qdrant-instance.region.gcp.cloud.qdrant.io
 QDRANT_PORT=6333
 QDRANT_API_KEY=your-qdrant-api-key
 QDRANT_COLLECTION=image-vectors
+
+# Pub/Sub configuration
+PUBSUB_TOPIC=image-upload-notifications
+PUBSUB_SUBSCRIPTION=image-tagger-sub
+
+# Cloud Function / Cloud Run configuration  
+SERVICE_NAME=image-tagger-run
+SERVICE_ACCOUNT=your-service-account@your-project-id.iam.gserviceaccount.com
+MEMORY=4Gi
+CPU=2
+TIMEOUT=540s
 ```
 
 ### Deployment Steps
@@ -47,45 +63,151 @@ gcloud auth login
 gcloud config set project YOUR_PROJECT_ID
 ```
 
-2. Build and deploy using Docker container (recommended for faster cold starts):
+2. Enable required Google Cloud APIs:
+
+```bash
+gcloud services enable cloudbuild.googleapis.com run.googleapis.com artifactregistry.googleapis.com pubsub.googleapis.com storage.googleapis.com
+```
+
+3. Create Artifact Registry repository:
+
+```bash
+gcloud artifacts repositories create image-tagger --repository-format=docker --location=us-central1
+```
+
+4. Create Cloud Storage bucket and Pub/Sub topic:
+
+```bash
+gsutil mb -l us-central1 gs://YOUR_BUCKET_NAME
+gcloud pubsub topics create image-upload-notifications
+```
+
+5. Create service account (or use an existing one):
+
+```bash
+# Optional: Create a new service account
+gcloud iam service-accounts create image-tagger-sa
+
+# Grant required permissions
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:image-tagger-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/storage.admin"
+
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:image-tagger-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/pubsub.subscriber"
+```
+
+6. Build and push Docker container:
 
 ```bash
 # Build the container
-docker build -t gcr.io/YOUR_PROJECT_ID/image-tagger:latest .
+docker build -t us-central1-docker.pkg.dev/YOUR_PROJECT_ID/image-tagger/image-tagger:latest .
 
-# Push to Google Container Registry
-docker push gcr.io/YOUR_PROJECT_ID/image-tagger:latest
+# Configure Docker authentication for Artifact Registry
+gcloud auth configure-docker us-central1-docker.pkg.dev
 
-# Deploy the Cloud Function with container
-gcloud functions deploy image-tagger \
-  --gen2 \
-  --region=us-central1 \
-  --docker-repository=gcr.io/YOUR_PROJECT_ID/image-tagger \
-  --entry-point=process_pubsub_message \
-  --trigger-topic=image-upload-notifications \
-  --memory=8GB \
-  --timeout=540s \
-  --min-instances=0 \
-  --max-instances=10 \
-  --set-env-vars=GCS_BUCKET_NAME=tagger-images,QDRANT_URL=your-qdrant-host,QDRANT_PORT=6333,QDRANT_API_KEY=your-api-key,QDRANT_COLLECTION=image-vectors
+# Push to Artifact Registry
+docker push us-central1-docker.pkg.dev/YOUR_PROJECT_ID/image-tagger/image-tagger:latest
 ```
 
-3. Alternative: Direct deployment without Docker (not recommended for ML workloads):
+7. Deploy to Cloud Run:
 
 ```bash
-gcloud functions deploy image-tagger \
-  --gen2 \
-  --runtime=python310 \
-  --region=us-central1 \
-  --source=. \
-  --entry-point=process_pubsub_message \
-  --trigger-topic=image-upload-notifications \
-  --memory=8GB \
+gcloud run deploy YOUR_SERVICE_NAME \
+  --image=us-central1-docker.pkg.dev/YOUR_PROJECT_ID/image-tagger/image-tagger:latest \
+  --region=YOUR_REGION \
+  --project=YOUR_PROJECT_ID \
+  --memory=4Gi \
+  --cpu=2 \
   --timeout=540s \
-  --min-instances=0 \
-  --max-instances=10 \
-  --set-env-vars=GCS_BUCKET_NAME=tagger-images,QDRANT_URL=your-qdrant-host,QDRANT_PORT=6333,QDRANT_API_KEY=your-api-key,QDRANT_COLLECTION=image-vectors
+  --service-account=YOUR_SERVICE_ACCOUNT \
+  --set-env-vars=GCS_BUCKET_NAME=YOUR_BUCKET_NAME,QDRANT_URL=YOUR_QDRANT_URL,QDRANT_PORT=6333,QDRANT_API_KEY=YOUR_QDRANT_API_KEY,QDRANT_COLLECTION=image-vectors \
+  --no-allow-unauthenticated
 ```
+
+8. Create a Pub/Sub subscription that pushes to the Cloud Run service:
+
+```bash
+gcloud pubsub subscriptions create YOUR_SUBSCRIPTION_NAME \
+  --topic=image-upload-notifications \
+  --project=YOUR_PROJECT_ID \
+  --push-endpoint=https://YOUR_SERVICE_NAME-YOUR_PROJECT_NUMBER.YOUR_REGION.run.app \
+  --push-auth-service-account=YOUR_SERVICE_ACCOUNT
+```
+
+### Testing the Deployment
+
+1. Generate a test message:
+
+```bash
+# Create a test message with an image
+python3 test_cloud_function.py /path/to/your/image.jpg -o test_message.json
+
+# View the message content
+cat test_message.json
+```
+
+2. Publish the test message to your Pub/Sub topic:
+
+```bash
+gcloud pubsub topics publish image-upload-notifications \
+  --message="$(cat test_message.json)" \
+  --project=YOUR_PROJECT_ID
+```
+
+3. Check the logs to verify the function processed the message:
+
+```bash
+gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=YOUR_SERVICE_NAME" \
+  --project=YOUR_PROJECT_ID \
+  --limit=10 \
+  --order=desc
+```
+
+4. Verify the image was uploaded to your Cloud Storage bucket:
+
+```bash
+gsutil ls -l gs://YOUR_BUCKET_NAME
+```
+
+5. Check Qdrant to see if the vector was stored:
+
+```bash
+# If you have qdrant-client installed, you can use this Python code
+import os
+from qdrant_client import QdrantClient
+
+client = QdrantClient(
+    url=os.environ["QDRANT_URL"],
+    port=int(os.environ["QDRANT_PORT"]),
+    api_key=os.environ["QDRANT_API_KEY"]
+)
+
+# Search for vectors
+client.search(
+    collection_name=os.environ["QDRANT_COLLECTION"],
+    query_vector={"name": "camie", "sparse": {"indices": [0, 1, 2], "values": [0.5, 0.7, 0.3]}},
+    limit=5
+)
+```
+
+### Troubleshooting Common Issues
+
+- **Deployment Failures**:
+  - Ensure all necessary APIs are enabled
+  - Check Docker image builds successfully
+  - Verify service account has required permissions
+
+- **Container Startup Failures**:
+  - Check logs for missing dependencies
+  - For OpenCV issues, ensure system libraries are installed
+  - Verify environment variables are correctly set
+
+- **Message Processing Failures**:
+  - Check Pub/Sub subscription configuration
+  - Verify authentication between Pub/Sub and Cloud Run
+  - Examine Cloud Run logs for detailed error messages
 
 ## Pub/Sub Message Format
 

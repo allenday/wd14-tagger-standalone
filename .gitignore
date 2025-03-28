@@ -5,3 +5,5 @@ venv/
 .env
 
 presets/
+# Environment variables
+.env
