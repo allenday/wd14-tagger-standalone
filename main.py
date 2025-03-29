@@ -27,10 +27,15 @@ bucket_client = None
 
 # Pre-load the model during module initialization to avoid cold-start latency
 try:
-    logger.info("Pre-loading model for faster cold start...")
-    interrogator_instance = interrogators["camie-tagger"]
-    interrogator_instance.override_execution_provider(['CPUExecutionProvider'])
-    logger.info("Model pre-loaded successfully")
+    # Only pre-load if we're not in a build context (Docker build)
+    # This avoids errors during container build
+    if os.environ.get("IN_DOCKER_BUILD") != "1":
+        logger.info("Pre-loading model for faster cold start...")
+        interrogator_instance = interrogators["camie-tagger"]
+        interrogator_instance.override_execution_provider(['CPUExecutionProvider'])
+        logger.info("Model pre-loaded successfully")
+    else:
+        logger.info("Skipping model pre-load during Docker build")
 except Exception as e:
     logger.error(f"Error pre-loading model: {str(e)}")
     # Continue anyway, we'll try to load it again when needed
