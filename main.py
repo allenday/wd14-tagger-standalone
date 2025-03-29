@@ -158,12 +158,13 @@ def process_pubsub_message(cloud_event):
         # Use filepath as ID (hash it for consistency)
         point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, filepath))
         
-        # Insert into Qdrant
+        # Insert into Qdrant with proper format for sparse vectors
         qdrant.upsert(
             collection_name=collection_name,
             points=[{
                 "id": point_id,
-                "vector": vector_data["vector"],
+                "vector": vector_data["vector"],  # This is now a dummy dense vector
+                "sparse_vectors": vector_data.get("sparse_vectors", {}),  # Include sparse vectors
                 "payload": vector_data["payload"]
             }]
         )

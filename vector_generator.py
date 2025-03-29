@@ -159,21 +159,31 @@ def format_output(dense_array, output_format, original_data):
     elif output_format == VectorFormat.QDRANT_SPARSE:
         # Convert dense to sparse format
         non_zero = [(idx, val) for idx, val in enumerate(dense_array) if val > 0]
+        
+        # Create a dummy dense vector required by Qdrant
+        dummy_vector = [0.0] * 100
+        
         if non_zero:
             indices, values = zip(*non_zero)
             return {
-                "vector": {
-                    "indices": list(indices),
-                    "values": list(values)
+                "vector": dummy_vector,  # Required dummy dense vector
+                "sparse_vectors": {
+                    "camie": {  # Match the name defined in the collection
+                        "indices": list(indices),
+                        "values": list(values)
+                    }
                 },
                 "payload": original_data  # Include complete original data
             }
         else:
             # Handle empty vector case
             return {
-                "vector": {
-                    "indices": [],
-                    "values": []
+                "vector": dummy_vector,  # Required dummy dense vector
+                "sparse_vectors": {
+                    "camie": {  # Match the name defined in the collection
+                        "indices": [],
+                        "values": []
+                    }
                 },
                 "payload": original_data
             }
