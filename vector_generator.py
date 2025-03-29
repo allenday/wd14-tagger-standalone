@@ -56,14 +56,11 @@ def initialize_qdrant_client():
                 qdrant_client.create_collection(
                     collection_name=collection_name,
                     vectors_config=models.VectorParams(
-                        size=0,  # Not used for sparse vectors
+                        size=100,  # Dummy size for the dense vector
                         distance=models.Distance.COSINE
                     ),
                     sparse_vectors_config={
-                        "camie": models.VectorParams(
-                            size=0,  # Automatically determined for sparse vectors
-                            distance=models.Distance.COSINE
-                        )
+                        "camie": models.SparseVectorParams()
                     }
                 )
         except Exception as e:
