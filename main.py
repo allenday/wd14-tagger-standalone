@@ -25,6 +25,16 @@ interrogator_instance = None
 qdrant_client = None
 bucket_client = None
 
+# Pre-load the model during module initialization to avoid cold-start latency
+try:
+    logger.info("Pre-loading model for faster cold start...")
+    interrogator_instance = interrogators["camie-tagger"]
+    interrogator_instance.override_execution_provider(['CPUExecutionProvider'])
+    logger.info("Model pre-loaded successfully")
+except Exception as e:
+    logger.error(f"Error pre-loading model: {str(e)}")
+    # Continue anyway, we'll try to load it again when needed
+
 def initialize_model(model_name="camie-tagger"):
     """Initialize and cache the model."""
     global interrogator_instance

@@ -26,9 +26,15 @@ COPY tagger/ ./tagger/
 COPY setup_models.py /workspace/
 
 # Download models during build time to avoid cold start downloads
+# This ensures the model files are cached in the Docker image
 RUN echo "Setting up models..." && \
     python setup_models.py && \
-    echo "Model setup complete"
+    echo "Model setup complete" && \
+    python -c "from huggingface_hub import hf_hub_download; \
+    model_path = hf_hub_download('Camais03/camie-tagger', 'model_initial.onnx', local_dir='/root/.cache/huggingface/models--Camais03--camie-tagger/blobs/'); \
+    tags_path = hf_hub_download('Camais03/camie-tagger', 'tag_mapping_v1.json', local_dir='/root/.cache/huggingface/models--Camais03--camie-tagger/blobs/')" && \
+    ls -la /root/.cache/huggingface/models--Camais03--camie-tagger/blobs/ && \
+    echo "Model files downloaded and cached"
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
