@@ -84,17 +84,42 @@ def save_to_gcs(bucket_name, destination_blob_name, image_data):
 @functions_framework.cloud_event
 def process_pubsub_message(cloud_event):
     """Cloud Function entry point - processes Pub/Sub messages."""
-    # Get Pub/Sub message
-    pubsub_message = base64.b64decode(cloud_event.data["message"]["data"]).decode()
+    # Debug log for diagnosing message format issues
+    logger.info(f"Received cloud event with data keys: {cloud_event.data.keys() if hasattr(cloud_event, 'data') and cloud_event.data else 'No data'}")
+    logger.info(f"Cloud event data type: {type(cloud_event.data) if hasattr(cloud_event, 'data') else 'No data attribute'}")
     
+    # Get Pub/Sub message with error handling
     try:
+        # First, safely access the nested message data
+        if not hasattr(cloud_event, 'data') or not cloud_event.data:
+            logger.error("No data in cloud event")
+            return
+            
+        if "message" not in cloud_event.data:
+            logger.error(f"No 'message' in cloud event data. Keys: {cloud_event.data.keys()}")
+            return
+            
+        message = cloud_event.data.get("message", {})
+        if not message or "data" not in message:
+            logger.error(f"No 'data' in message. Message: {message}")
+            return
+        
+        # Base64 decode the message data
+        encoded_data = message["data"]
+        logger.info(f"Encoded data has length: {len(encoded_data)}")
+        pubsub_message = base64.b64decode(encoded_data).decode('utf-8')
+        logger.info(f"Decoded message starts with: {pubsub_message[:100]}...")
+    
         # Parse the message content
         message_data = json.loads(pubsub_message)
+        logger.info(f"Successfully parsed JSON with keys: {message_data.keys()}")
         
         # Extract fields from the message
         filepath = message_data.get("filepath")
         timestamp = message_data.get("timestamp")
         image_base64 = message_data.get("image")
+        
+        logger.info(f"Processing image from: {filepath}")
         
         if not filepath or not image_base64:
             logger.error("Missing required fields in message: filepath and/or image")
@@ -145,6 +170,15 @@ def process_pubsub_message(cloud_event):
         
         logger.info(f"Successfully processed image and stored vector for {filepath}")
     
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON parsing error: {str(e)}")
+        logger.error(f"Message content: {pubsub_message[:200]}...")
+        return  # Don't raise, just log and return
+    except KeyError as e:
+        logger.error(f"Missing key in message: {str(e)}")
+        return  # Don't raise, just log and return
     except Exception as e:
         logger.error(f"Error processing message: {str(e)}")
-        raise
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return  # Don't raise, just log and return
