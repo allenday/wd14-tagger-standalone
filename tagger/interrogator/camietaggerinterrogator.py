@@ -100,7 +100,17 @@ class CamieTaggerInterrogator(AbsInterrogator):
             tags_by_category[category].append((tag_name, prob))
 
         # 'year', 'rating', 'general', 'character', 'copyright', 'artist', 'meta'
-        return dict(tags_by_category['rating']), dict(tags_by_category['general'])
+        # Handle case where 'rating' category might be missing
+        rating_tags = {}
+        if 'rating' in tags_by_category:
+            rating_tags = dict(tags_by_category['rating'])
+            
+        # Ensure 'general' category exists, default to empty if missing
+        general_tags = {}
+        if 'general' in tags_by_category:
+            general_tags = dict(tags_by_category['general'])
+            
+        return rating_tags, general_tags
 
 def preprocess_image(img: Image.Image, image_size=512) -> torch.Tensor:
     """Process an image for inference"""
