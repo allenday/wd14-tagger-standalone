@@ -159,15 +159,53 @@ def process_pubsub_message(cloud_event):
         point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, filepath))
         
         # Insert into Qdrant with proper format for sparse vectors
-        qdrant.upsert(
-            collection_name=collection_name,
-            points=[{
-                "id": point_id,
-                "vector": vector_data["vector"],  # This is now a dummy dense vector
-                "sparse_vectors": vector_data.get("sparse_vectors", {}),  # Include sparse vectors
-                "payload": vector_data["payload"]
-            }]
-        )
+        # The Python client doesn't support sparse_vectors field yet, but the REST API does
+        # So we'll drop the sparse vectors for now and just use the dense vector
+        try:
+            # First try without sparse vectors
+            logger.info(f"Inserting point {point_id} into Qdrant collection {collection_name}")
+            qdrant.upsert(
+                collection_name=collection_name,
+                points=[{
+                    "id": point_id,
+                    "vector": vector_data["vector"],  # This is the dummy dense vector
+                    "payload": vector_data["payload"]
+                }]
+            )
+            logger.info("Vector insertion successful")
+            
+            # Store sparse vector information in the payload for now
+            if "sparse_vectors" in vector_data and vector_data["sparse_vectors"]:
+                logger.info("Sparse vector information included in payload")
+                # We'll add this to the payload instead since the client doesn't support sparse_vectors
+                qdrant.set_payload(
+                    collection_name=collection_name,
+                    payload={"_sparse_vectors": vector_data["sparse_vectors"]},
+                    points=[point_id]
+                )
+                logger.info("Updated payload with sparse vector information")
+        except Exception as e:
+            logger.error(f"Error inserting into Qdrant: {str(e)}")
+            # Try again with minimal format
+            try:
+                logger.info("Retrying with minimal format")
+                qdrant.upsert(
+                    collection_name=collection_name,
+                    points=[{
+                        "id": point_id,
+                        "vector": vector_data["vector"],
+                        "payload": {
+                            "file": result["file"],
+                            "gcs_uri": result["gcs_uri"],
+                            "timestamp": result["timestamp"],
+                            "tags": result["tags"]
+                        }
+                    }]
+                )
+                logger.info("Minimal vector insertion successful")
+            except Exception as e2:
+                logger.error(f"Error with minimal format: {str(e2)}")
+                raise
         
         logger.info(f"Successfully processed image and stored vector for {filepath}")
     
