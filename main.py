@@ -114,6 +114,20 @@ def process_pubsub_message(cloud_event):
         message_data = json.loads(pubsub_message)
         logger.info(f"Successfully parsed JSON with keys: {message_data.keys()}")
         
+        # Check if we're dealing with a nested structure (due to double-encoding)
+        if "message" in message_data and "data" not in message_data:
+            logger.info("Detected nested message format, fixing...")
+            # If we have a nested message structure, we need to decode one more level
+            try:
+                inner_data = message_data.get("message", {}).get("data")
+                if inner_data:
+                    inner_json = base64.b64decode(inner_data).decode('utf-8')
+                    message_data = json.loads(inner_json)
+                    logger.info(f"Successfully parsed inner JSON with keys: {message_data.keys()}")
+            except Exception as e:
+                logger.error(f"Error parsing nested message: {str(e)}")
+                return
+        
         # Extract fields from the message
         filepath = message_data.get("filepath")
         timestamp = message_data.get("timestamp")
