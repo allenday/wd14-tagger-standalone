@@ -61,7 +61,7 @@ def publish_message(project_id, topic_id, image_path, max_size=512, filepath=Non
         if len(parts) == 2:
             bucket_name, object_path = parts
             # Create the HTTPS URL
-            path_str = f"https://storage.cloud.google.com/{bucket_name}/{object_path}"
+            path_str = f"https://storage.googleapis.com/{bucket_name}/{object_path}"
             if verbose:
                 print(f"Converted GCS path to HTTPS URL: {path_str}")
     
@@ -163,7 +163,7 @@ def create_test_message(image_path, max_size=512, output_file=None, filepath=Non
         if len(parts) == 2:
             bucket_name, object_path = parts
             # Create the HTTPS URL
-            path_str = f"https://storage.cloud.google.com/{bucket_name}/{object_path}"
+            path_str = f"https://storage.googleapis.com/{bucket_name}/{object_path}"
             print(f"Converted GCS path to HTTPS URL: {path_str}")
     
     inner_message = {

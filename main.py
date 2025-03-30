@@ -189,10 +189,13 @@ def process_pubsub_message(cloud_event):
         image_data = base64.b64decode(image_base64)
         
         # Handle different formats of filepath
-        if filepath.startswith("https://storage.cloud.google.com/"):
+        if filepath.startswith("https://storage.googleapis.com/") or filepath.startswith("https://storage.cloud.google.com/"):
             # Extract bucket and object path from HTTPS URL
-            # Format: https://storage.cloud.google.com/bucket-name/path/to/object
-            https_path = filepath.replace("https://storage.cloud.google.com/", "")
+            if filepath.startswith("https://storage.googleapis.com/"):
+                https_path = filepath.replace("https://storage.googleapis.com/", "")
+            else:
+                https_path = filepath.replace("https://storage.cloud.google.com/", "")
+                
             parts = https_path.split("/", 1)
             if len(parts) == 2:
                 bucket_name = parts[0]
@@ -253,7 +256,7 @@ def process_pubsub_message(cloud_event):
             parts = gs_path.split("/", 1)
             if len(parts) == 2:
                 bucket_name, object_path = parts
-                https_uri = f"https://storage.cloud.google.com/{bucket_name}/{object_path}"
+                https_uri = f"https://storage.googleapis.com/{bucket_name}/{object_path}"
                 logger.info(f"Converted GCS URI to HTTPS URL for storage: {https_uri}")
         
         # Create result object with both the original filepath and HTTPS URL

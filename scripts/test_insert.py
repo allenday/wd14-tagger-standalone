@@ -72,7 +72,7 @@ try:
             "payload": {
                 "file": "test_image.jpg",
                 "gcs_uri": "gs://test-bucket/test_image.jpg",
-                "https_uri": "https://storage.cloud.google.com/test-bucket/test_image.jpg",
+                "https_uri": "https://storage.googleapis.com/test-bucket/test_image.jpg",
                 "timestamp": "2023-01-01T00:00:00Z",
                 "tags": tags,  # Include human-readable tags in payload
                 # Store sparse vector data in payload since we can't directly use sparse vectors
