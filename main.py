@@ -184,28 +184,56 @@ def process_pubsub_message(cloud_event):
         # Decode the image
         image_data = base64.b64decode(image_base64)
         
-        # Create storage path from filepath
-        # This preserves the directory structure from the filepath
-        path = Path(filepath)
-        filename = path.name
-        parent_path = path.parent
-        
-        # Get bucket name from environment
-        bucket_name = os.environ.get("GCS_BUCKET_NAME", "tagger-images")
-        
-        # If parent path is just / or empty, use the stem as the directory
-        # Otherwise use the full parent path
-        if str(parent_path) == '/' or str(parent_path) == '.':
-            destination_blob_name = f"{path.stem}/{filename}"
+        # Handle different formats of filepath
+        if filepath.startswith("https://storage.cloud.google.com/"):
+            # Extract bucket and object path from HTTPS URL
+            # Format: https://storage.cloud.google.com/bucket-name/path/to/object
+            https_path = filepath.replace("https://storage.cloud.google.com/", "")
+            parts = https_path.split("/", 1)
+            if len(parts) == 2:
+                bucket_name = parts[0]
+                destination_blob_name = parts[1]
+                logger.info(f"Extracted from HTTPS URL - Bucket: {bucket_name}, Path: {destination_blob_name}")
+            else:
+                logger.error(f"Invalid HTTPS GCS URL format: {filepath}")
+                # Use default values as fallback
+                bucket_name = os.environ.get("GCS_BUCKET_NAME", "tagger-images")
+                destination_blob_name = f"unknown/{Path(filepath).name}"
+        elif filepath.startswith("gs://"):
+            # Extract bucket and object path from gs:// URL
+            gs_path = filepath[5:]  # Remove "gs://"
+            parts = gs_path.split("/", 1)
+            if len(parts) == 2:
+                bucket_name = parts[0]
+                destination_blob_name = parts[1]
+                logger.info(f"Extracted from GS URL - Bucket: {bucket_name}, Path: {destination_blob_name}")
+            else:
+                logger.error(f"Invalid GS URL format: {filepath}")
+                # Use default values as fallback
+                bucket_name = os.environ.get("GCS_BUCKET_NAME", "tagger-images")
+                destination_blob_name = f"unknown/{Path(filepath).name}"
         else:
-            # Remove leading / if present to avoid empty segment at the beginning
-            parent_str = str(parent_path)
-            if parent_str.startswith('/'):
-                parent_str = parent_str[1:]
-                
-            destination_blob_name = f"{parent_str}/{filename}"
+            # Regular filepath, preserve directory structure
+            path = Path(filepath)
+            filename = path.name
+            parent_path = path.parent
             
-        logger.info(f"Storage path: {destination_blob_name}")
+            # Get bucket name from environment
+            bucket_name = os.environ.get("GCS_BUCKET_NAME", "tagger-images")
+            
+            # If parent path is just / or empty, use the stem as the directory
+            # Otherwise use the full parent path
+            if str(parent_path) == '/' or str(parent_path) == '.':
+                destination_blob_name = f"{path.stem}/{filename}"
+            else:
+                # Remove leading / if present to avoid empty segment at the beginning
+                parent_str = str(parent_path)
+                if parent_str.startswith('/'):
+                    parent_str = parent_str[1:]
+                    
+                destination_blob_name = f"{parent_str}/{filename}"
+        
+        logger.info(f"Storage path: {bucket_name}/{destination_blob_name}")
         
         # Save image to GCS
         gcs_uri = save_to_gcs(bucket_name, destination_blob_name, image_data)

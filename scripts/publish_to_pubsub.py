@@ -47,8 +47,21 @@ def publish_message(project_id, topic_id, image_path, max_size=512, filepath=Non
     image_data = resize_image(image_path, max_size)
     
     # Step 1: Create inner message with image data
+    path_str = filepath if filepath else str(path)
+    
+    # Convert gs:// URLs to https:// URLs if needed
+    if path_str.startswith("gs://"):
+        # Extract bucket and object path from gs:// URL
+        gs_path = path_str[5:]  # Remove "gs://"
+        parts = gs_path.split("/", 1)
+        if len(parts) == 2:
+            bucket_name, object_path = parts
+            # Create the HTTPS URL
+            path_str = f"https://storage.cloud.google.com/{bucket_name}/{object_path}"
+            print(f"Converted GCS path to HTTPS URL: {path_str}")
+    
     inner_message = {
-        "filepath": filepath if filepath else str(path),
+        "filepath": path_str,
         "timestamp": "2023-01-01T12:00:00Z",
         "image": base64.b64encode(image_data).decode("utf-8")
     }
@@ -134,8 +147,21 @@ def create_test_message(image_path, max_size=512, output_file=None, filepath=Non
     image_data = resize_image(image_path, max_size)
     
     # Step 1: Create inner message with image data
+    path_str = filepath if filepath else str(path)
+    
+    # Convert gs:// URLs to https:// URLs if needed
+    if path_str.startswith("gs://"):
+        # Extract bucket and object path from gs:// URL
+        gs_path = path_str[5:]  # Remove "gs://"
+        parts = gs_path.split("/", 1)
+        if len(parts) == 2:
+            bucket_name, object_path = parts
+            # Create the HTTPS URL
+            path_str = f"https://storage.cloud.google.com/{bucket_name}/{object_path}"
+            print(f"Converted GCS path to HTTPS URL: {path_str}")
+    
     inner_message = {
-        "filepath": filepath if filepath else str(path),
+        "filepath": path_str,
         "timestamp": "2023-01-01T12:00:00Z",
         "image": base64.b64encode(image_data).decode("utf-8")
     }
