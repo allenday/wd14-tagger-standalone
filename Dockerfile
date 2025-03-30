@@ -30,58 +30,20 @@ COPY setup_models.py /workspace/
 # Set environment variable to prevent model loading during build
 ENV IN_DOCKER_BUILD=1
 
-# Create cache directories
-RUN mkdir -p /root/.cache/huggingface/hub/models--Camais03--camie-tagger/blobs && \
-    mkdir -p /root/.cache/huggingface/hub/models--Camais03--camie-tagger/snapshots/latest
+# IMPORTANT: Before building the Docker image, run:
+# python scripts/model_cache.py --output-dir hf_cache
+# This will download and cache the model files in the correct structure
 
-# Attempt to set up models, but don't fail the build if it doesn't work
-RUN echo "Setting up models..." && \
-    python setup_models.py || echo "Setup script failed, but continuing build" && \
-    echo "Model setup complete"
+# Create huggingface cache directory
+RUN mkdir -p /root/.cache/huggingface
 
-# Alternative method to download model files - we're creating separate RUN commands
-# to avoid failing the entire build if one step fails
-RUN echo "Attempting to download model files..." && \
-    python -c "import os; from huggingface_hub import hf_hub_download; \
-    os.makedirs('/root/.cache/huggingface/hub/models--Camais03--camie-tagger/blobs/', exist_ok=True); \
-    try: \
-        model_path = hf_hub_download('Camais03/camie-tagger', 'model_initial.onnx', local_dir='/root/.cache/huggingface/hub'); \
-        print(f'Model downloaded to {model_path}'); \
-    except Exception as e: \
-        print(f'Model download error: {str(e)}'); \
-        print('Will download at runtime'); \
-    " || echo "Model download failed, will try at runtime"
+# Copy the entire huggingface cache structure that was prepared by model_cache.py
+# This includes model files in the exact structure that huggingface_hub expects
+COPY hf_cache/hub /root/.cache/huggingface/hub
 
-# Separate command for tag mapping to avoid failing the entire build
-RUN echo "Attempting to download tag mapping..." && \
-    python -c "import os; from huggingface_hub import hf_hub_download; \
-    os.makedirs('/root/.cache/huggingface/hub/models--Camais03--camie-tagger/blobs/', exist_ok=True); \
-    try: \
-        tags_path = hf_hub_download('Camais03/camie-tagger', 'tag_mapping_v1.json', local_dir='/root/.cache/huggingface/hub'); \
-        print(f'Tags downloaded to {tags_path}'); \
-    except Exception as e: \
-        print(f'Tag mapping download error: {str(e)}'); \
-        print('Will download at runtime'); \
-    " || echo "Tag mapping download failed, will try at runtime"
-
-# Create fallback files if downloads failed
-RUN echo "Creating fallback files if needed..." && \
-    python -c "import os, json; \
-    mapping_file = '/root/.cache/huggingface/hub/models--Camais03--camie-tagger/blobs/c7dc4e38696a812e593916e3f2e51b92f687f8ea'; \
-    if not os.path.exists(mapping_file): \
-        print('Creating fallback tag mapping...'); \
-        tag_mapping = { \
-            'idx_to_tag': {str(i): f'tag_{i}' for i in range(100)}, \
-            'tag_to_category': {f'tag_{i}': 'general' for i in range(100)} \
-        }; \
-        os.makedirs(os.path.dirname(mapping_file), exist_ok=True); \
-        with open(mapping_file, 'w') as f: \
-            json.dump(tag_mapping, f); \
-        print(f'Created fallback tag mapping at {mapping_file}'); \
-    " || echo "Fallback creation failed, continuing anyway"
-
-# List what we've got, but don't fail if the directory doesn't exist
-RUN ls -la /root/.cache/huggingface/hub/models--Camais03--camie-tagger/blobs/ || echo "No model files found, will download at runtime"
+# Verify the model files are in place - this will show the actual paths used by huggingface
+RUN ls -la /root/.cache/huggingface/hub/models--Camais03--camie-tagger/blobs/ || echo "Model files not found!"
+RUN ls -la /root/.cache/huggingface/hub/models--Camais03--camie-tagger/snapshots/latest/ || echo "Snapshot files not found!"
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
