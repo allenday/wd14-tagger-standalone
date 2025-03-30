@@ -155,7 +155,12 @@ def create_collection(client, collection_name, overwrite=False, with_whash=True)
             field_name="gcs_uri",
             field_schema=models.PayloadSchemaType.KEYWORD,
         )
-        logger.info("Created payload indices for 'file' and 'gcs_uri' fields")
+        client.create_payload_index(
+            collection_name=collection_name,
+            field_name="https_uri",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+        logger.info("Created payload indices for 'file', 'gcs_uri', and 'https_uri' fields")
         
         return True
     except Exception as e:
@@ -280,6 +285,11 @@ def update_collection_with_whash(client, collection_name):
         client.create_payload_index(
             collection_name=temp_collection_name,
             field_name="gcs_uri",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+        client.create_payload_index(
+            collection_name=temp_collection_name,
+            field_name="https_uri",
             field_schema=models.PayloadSchemaType.KEYWORD,
         )
         

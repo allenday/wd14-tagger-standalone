@@ -241,10 +241,22 @@ def process_pubsub_message(cloud_event):
         # Process the image and get tags
         tags = process_image(image_data)
         
-        # Create result object
+        # Convert GCS URI to HTTPS URL for the result object
+        https_uri = gcs_uri
+        if gcs_uri.startswith("gs://"):
+            # Format: gs://bucket-name/path/to/object
+            gs_path = gcs_uri[5:]  # Remove "gs://"
+            parts = gs_path.split("/", 1)
+            if len(parts) == 2:
+                bucket_name, object_path = parts
+                https_uri = f"https://storage.cloud.google.com/{bucket_name}/{object_path}"
+                logger.info(f"Converted GCS URI to HTTPS URL for storage: {https_uri}")
+        
+        # Create result object with both the original filepath and HTTPS URL
         result = {
-            "file": filepath,
-            "gcs_uri": gcs_uri,
+            "file": filepath,      # Keep the original filepath
+            "gcs_uri": gcs_uri,    # Keep the original GCS URI (gs:// format)
+            "https_uri": https_uri, # Add the HTTPS URL for direct browsing
             "timestamp": timestamp,
             "tags": tags
         }
@@ -326,6 +338,7 @@ def process_pubsub_message(cloud_event):
                         "payload": {
                             "file": result["file"],
                             "gcs_uri": result["gcs_uri"],
+                            "https_uri": result["https_uri"],
                             "timestamp": result["timestamp"],
                             "tags": result["tags"]
                         }
@@ -346,6 +359,7 @@ def process_pubsub_message(cloud_event):
                             "payload": {
                                 "file": result["file"],
                                 "gcs_uri": result["gcs_uri"],
+                                "https_uri": result["https_uri"],
                                 "timestamp": result["timestamp"],
                                 "tags": result["tags"]
                             }
