@@ -42,9 +42,60 @@ class CamieTaggerInterrogator(AbsInterrogator):
     def download(self) -> tuple[str, str]:
         print(f"Loading {self.name} model file from {self.repo_id}", file=sys.stderr)
         
-        # Just try to download directly - don't use local_files_only which is causing problems
-        print(f"Downloading model files for {self.repo_id}", file=sys.stderr)
+        # Method 1: Try to find files in the blobs directory first (most reliable)
+        model_path, tags_path = self._try_load_from_blobs()
+        if model_path and tags_path:
+            return model_path, tags_path
+            
+        # Method 2: Try using the HuggingFace Hub API
+        model_path, tags_path = self._try_huggingface_api()
+        if model_path and tags_path:
+            return model_path, tags_path
+            
+        # If we got here, all methods failed
+        raise RuntimeError("Failed to load model files through any method")
+    
+    def _try_load_from_blobs(self) -> tuple[str, str]:
+        """Try to load directly from the HuggingFace cache blobs directory."""
+        cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
+        model_dir = os.path.join(cache_dir, f"models--{self.repo_id.replace('/', '--')}")
+        blobs_dir = os.path.join(model_dir, "blobs")
+        
+        # List all files in the blobs directory
+        if os.path.exists(blobs_dir):
+            print(f"Found blobs directory: {blobs_dir}", file=sys.stderr)
+            
+            # Look for the model file - it might have any name in blobs
+            # So we'll check all files and look for onnx files of significant size
+            blob_files = os.listdir(blobs_dir)
+            
+            # Find model file
+            model_blob = None
+            for f in blob_files:
+                if f.endswith('.onnx') or self.model_path in f:
+                    model_blob = os.path.join(blobs_dir, f)
+                    if os.path.getsize(model_blob) > 10000:  # Must be substantial
+                        print(f"Found model file in blobs: {model_blob}", file=sys.stderr)
+                        break
+            
+            # Find tag mapping file
+            tags_blob = None
+            for f in blob_files:
+                if f.endswith('.json') or 'tag_mapping' in f or self.tags_path in f:
+                    tags_blob = os.path.join(blobs_dir, f)
+                    print(f"Found tags file in blobs: {tags_blob}", file=sys.stderr)
+                    break
+            
+            if model_blob and tags_blob:
+                return model_blob, tags_blob
+                
+        print("Could not find files in blobs directory", file=sys.stderr)
+        return None, None
+    
+    def _try_huggingface_api(self) -> tuple[str, str]:
+        """Try downloading via HuggingFace Hub API."""
         try:
+            print(f"Downloading using HuggingFace API", file=sys.stderr)
             model_path = hf_hub_download(
                 repo_id=self.repo_id,
                 filename=self.model_path
@@ -54,40 +105,10 @@ class CamieTaggerInterrogator(AbsInterrogator):
                 filename=self.tags_path
             )
             print(f"Successfully downloaded model files to {model_path}", file=sys.stderr)
+            return model_path, tags_path
         except Exception as e:
-            print(f"ERROR downloading model files: {str(e)}", file=sys.stderr)
-            
-            # Direct fallback - check for files in the snapshots directory
-            cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
-            snapshot_dir = os.path.join(
-                cache_dir, 
-                f"models--{self.repo_id.replace('/', '--')}", 
-                "snapshots", 
-                "latest"
-            )
-            
-            model_path = os.path.join(snapshot_dir, self.model_path)
-            tags_path = os.path.join(snapshot_dir, self.tags_path)
-            
-            print(f"Falling back to snapshot files: {model_path}", file=sys.stderr)
-            
-            if os.path.exists(model_path) and os.path.exists(tags_path):
-                print(f"Using snapshot files directly", file=sys.stderr)
-            else:
-                print(f"Snapshot files not found, trying direct backup location", file=sys.stderr)
-                # Check our direct backup location as last resort
-                backup_model_path = os.path.join("/workspace/models", os.path.basename(self.model_path))
-                backup_tags_path = os.path.join("/workspace/models", os.path.basename(self.tags_path))
-                
-                if os.path.exists(backup_model_path) and os.path.exists(backup_tags_path):
-                    print(f"Using backup files from /workspace/models", file=sys.stderr)
-                    model_path = backup_model_path
-                    tags_path = backup_tags_path
-                else:
-                    print(f"All fallbacks failed, cannot continue", file=sys.stderr)
-                    raise
-            
-        return model_path, tags_path
+            print(f"ERROR: HuggingFace download failed: {str(e)}", file=sys.stderr)
+            return None, None
 
     def load(self) -> None:
         model_path, tags_path = self.download()

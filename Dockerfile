@@ -35,15 +35,12 @@ ENV IN_DOCKER_BUILD=1
 # This will download and cache the model files in the correct structure
 # The --force flag ensures any existing cache is rebuilt from scratch
 
-# Create huggingface cache directory and backup models directory
-RUN mkdir -p /root/.cache/huggingface/hub && mkdir -p /workspace/models
+# Create huggingface cache directory
+RUN mkdir -p /root/.cache/huggingface/hub
 
 # Copy the entire huggingface cache structure that was prepared by model_cache.py
 # This includes model files in the exact structure that huggingface_hub expects
 COPY hf_cache/hub /root/.cache/huggingface/hub
-
-# Also directly copy the model files to a backup location for our fallback mechanism
-COPY hf_cache/hub/models--Camais03--camie-tagger/blobs/* /workspace/models/
 
 # Better debugging for cache structure
 RUN echo "Checking HuggingFace cache structure..." && \
