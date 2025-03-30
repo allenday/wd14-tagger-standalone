@@ -221,8 +221,8 @@ def process_pubsub_message(cloud_event):
             "tags": tags
         }
         
-        # Generate vector representation
-        vector_data = generate_qdrant_sparse_vector(result)
+        # Generate vector representation including wavelet hash
+        vector_data = generate_qdrant_sparse_vector(result, image_data=image_data, include_whash=True)
         
         # Store in Qdrant
         qdrant = initialize_qdrant_client()
@@ -231,32 +231,57 @@ def process_pubsub_message(cloud_event):
         # Use filepath as ID (hash it for consistency)
         point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, filepath))
         
-        # Insert into Qdrant with proper format for sparse vectors
-        # The Python client doesn't support sparse_vectors field yet, but the REST API does
-        # So we'll drop the sparse vectors for now and just use the dense vector
+        # Insert into Qdrant with proper format for sparse vectors and wavelet hash
         try:
-            # First try without sparse vectors
-            logger.info(f"Inserting point {point_id} into Qdrant collection {collection_name}")
-            qdrant.upsert(
-                collection_name=collection_name,
-                points=[{
-                    "id": point_id,
-                    "vector": vector_data["vector"],  # This is the dummy dense vector
-                    "payload": vector_data["payload"]
-                }]
-            )
-            logger.info("Vector insertion successful")
-            
-            # Store sparse vector information in the payload for now
-            if "sparse_vectors" in vector_data and vector_data["sparse_vectors"]:
-                logger.info("Sparse vector information included in payload")
-                # We'll add this to the payload instead since the client doesn't support sparse_vectors
-                qdrant.set_payload(
+            # Check if we have the combined format with tag vector and whash vector
+            if "vectors" in vector_data and "whash_vector" in vector_data["vectors"]:
+                logger.info(f"Inserting point {point_id} with tag vector and wavelet hash")
+                # Use the new format with named vectors
+                qdrant.upsert(
                     collection_name=collection_name,
-                    payload={"_sparse_vectors": vector_data["sparse_vectors"]},
-                    points=[point_id]
+                    points=[{
+                        "id": point_id,
+                        "vectors": {
+                            "tag_vector": vector_data["vectors"]["tag_vector"],
+                            "whash_vector": vector_data["vectors"]["whash_vector"]
+                        },
+                        "payload": vector_data["payload"]
+                    }]
                 )
-                logger.info("Updated payload with sparse vector information")
+                logger.info("Vector insertion with tag vector and wavelet hash successful")
+                
+                # Store sparse vector information in the payload
+                if "sparse_vectors" in vector_data and vector_data["sparse_vectors"]:
+                    logger.info("Adding sparse vector information to payload")
+                    qdrant.set_payload(
+                        collection_name=collection_name,
+                        payload={"_sparse_vectors": vector_data["sparse_vectors"]},
+                        points=[point_id]
+                    )
+                    logger.info("Updated payload with sparse vector information")
+            else:
+                # Fall back to the old format if wavelet hash is not available
+                logger.info(f"Inserting point {point_id} with tag vector only")
+                qdrant.upsert(
+                    collection_name=collection_name,
+                    points=[{
+                        "id": point_id,
+                        "vector": vector_data["vector"],  # This is the dummy dense vector
+                        "payload": vector_data["payload"]
+                    }]
+                )
+                logger.info("Vector insertion successful")
+                
+                # Store sparse vector information in the payload
+                if "sparse_vectors" in vector_data and vector_data["sparse_vectors"]:
+                    logger.info("Sparse vector information included in payload")
+                    # We'll add this to the payload instead since the client doesn't support sparse_vectors
+                    qdrant.set_payload(
+                        collection_name=collection_name,
+                        payload={"_sparse_vectors": vector_data["sparse_vectors"]},
+                        points=[point_id]
+                    )
+                    logger.info("Updated payload with sparse vector information")
         except Exception as e:
             logger.error(f"Error inserting into Qdrant: {str(e)}")
             # Try again with minimal format
@@ -266,7 +291,10 @@ def process_pubsub_message(cloud_event):
                     collection_name=collection_name,
                     points=[{
                         "id": point_id,
-                        "vector": vector_data["vector"],
+                        "vectors": {
+                            "tag_vector": [0.0] * 100,  # Use dummy tag vector
+                            "whash_vector": [0.0] * 256  # Use dummy wavelet hash vector
+                        },
                         "payload": {
                             "file": result["file"],
                             "gcs_uri": result["gcs_uri"],
@@ -278,7 +306,27 @@ def process_pubsub_message(cloud_event):
                 logger.info("Minimal vector insertion successful")
             except Exception as e2:
                 logger.error(f"Error with minimal format: {str(e2)}")
-                raise
+                
+                # Try one more time with the simplest possible format
+                try:
+                    logger.info("Retrying with simplest format")
+                    qdrant.upsert(
+                        collection_name=collection_name,
+                        points=[{
+                            "id": point_id,
+                            "vector": [0.0] * 100,  # Use dummy vector
+                            "payload": {
+                                "file": result["file"],
+                                "gcs_uri": result["gcs_uri"],
+                                "timestamp": result["timestamp"],
+                                "tags": result["tags"]
+                            }
+                        }]
+                    )
+                    logger.info("Simplest vector insertion successful")
+                except Exception as e3:
+                    logger.error(f"Error with simplest format: {str(e3)}")
+                    raise
         
         logger.info(f"Successfully processed image and stored vector for {filepath}")
     
