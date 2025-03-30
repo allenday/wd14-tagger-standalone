@@ -199,22 +199,91 @@ def check_credentials():
         print("2. Set GOOGLE_APPLICATION_CREDENTIALS environment variable to point to a service account key file")
         return False
 
+def find_image_files(directory_path):
+    """Find all image files in a directory recursively.
+    
+    Args:
+        directory_path: Path to the directory to search
+        
+    Returns:
+        List of file paths
+    """
+    image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp']
+    image_files = []
+    
+    # Convert to Path object if it's a string
+    path = Path(directory_path)
+    
+    if path.is_file():
+        # If it's a single file, just check if it's an image
+        if path.suffix.lower() in image_extensions:
+            return [str(path)]
+        else:
+            return []
+            
+    # Otherwise, walk the directory
+    for root, _, files in os.walk(path):
+        for file in files:
+            file_path = Path(root) / file
+            if file_path.suffix.lower() in image_extensions:
+                image_files.append(str(file_path))
+                
+    return image_files
+
+def process_path(path_str, base_dir=None, custom_dir=None):
+    """Process a file path to create the appropriate filepath for publishing.
+    
+    Args:
+        path_str: The original file path
+        base_dir: The base directory to strip from the path (for recursive processing)
+        custom_dir: Custom directory to use instead of the original path
+        
+    Returns:
+        Processed filepath
+    """
+    # Convert to Path objects
+    path = Path(path_str)
+    
+    if base_dir and custom_dir:
+        # If we have both a base_dir and custom_dir, replace the base with custom
+        base = Path(base_dir)
+        try:
+            # Get relative path from the base directory
+            rel_path = path.relative_to(base)
+            # Join with custom directory
+            new_path = Path(custom_dir) / rel_path
+            return str(new_path)
+        except ValueError:
+            # If path is not relative to base_dir, just use the filename
+            return str(Path(custom_dir) / path.name)
+    elif custom_dir:
+        # If we only have custom_dir, just use the filename
+        return str(Path(custom_dir) / path.name)
+    else:
+        # Otherwise return the original path
+        return str(path)
+    
 def main():
     """Main function."""
     parser = argparse.ArgumentParser(
-        description="Publish an image to Pub/Sub in Cloud Function format",
+        description="Publish images to Pub/Sub in Cloud Function format",
         formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument("image_path", help="Path to the image file")
+    parser.add_argument("image_path", help="Path to the image file or directory containing images")
     parser.add_argument("--project", help="Google Cloud project ID")
     parser.add_argument("--topic", help="Pub/Sub topic ID")
     parser.add_argument("--filepath", help="Custom filepath to include in the message payload (different from the actual file path)")
+    parser.add_argument("--custom-dir", help="Custom directory to use as the base path in the payload (for directory processing)")
     parser.add_argument("--max-size", type=int, default=256, 
                         help="Maximum dimension for resizing (default: 256)")
     parser.add_argument("--check-auth", action="store_true", 
                         help="Check Google Cloud authentication only")
     parser.add_argument("--save-only", metavar="FILE", 
                         help="Create a test message JSON file without publishing")
+    parser.add_argument("--recursive", action="store_true",
+                        help="Process directories recursively")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Show what would be published without actually publishing")
     
     args = parser.parse_args()
     
@@ -223,15 +292,35 @@ def main():
         check_credentials()
         return
     
-    # Check if file exists
+    # Check if path exists
     path = Path(args.image_path)
-    if not path.exists() or not path.is_file():
-        print(f"Error: File {args.image_path} does not exist or is not a file")
+    if not path.exists():
+        print(f"Error: Path {args.image_path} does not exist")
         sys.exit(1)
+    
+    # Find image files to process
+    if path.is_dir() and args.recursive:
+        print(f"Searching for images in {path} recursively...")
+        image_files = find_image_files(path)
+        if not image_files:
+            print(f"No image files found in {path}")
+            sys.exit(1)
+        print(f"Found {len(image_files)} image files")
+    elif path.is_dir():
+        print(f"Error: {path} is a directory. Use --recursive to process directories")
+        sys.exit(1)
+    else:
+        # Single file mode
+        if path.suffix.lower() not in ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp']:
+            print(f"Warning: {path} does not appear to be an image file")
+        image_files = [str(path)]
     
     # Save-only mode
     if args.save_only:
-        create_test_message(args.image_path, args.max_size, args.save_only, args.filepath)
+        if len(image_files) > 1:
+            print("Error: --save-only only works with a single image file")
+            sys.exit(1)
+        create_test_message(image_files[0], args.max_size, args.save_only, args.filepath)
         return
     
     # Validate required args for publishing
@@ -244,19 +333,50 @@ def main():
         print("Authentication check failed. Fix credentials before continuing.")
         return
     
-    # Publish message
-    success = publish_message(
-        args.project, 
-        args.topic, 
-        args.image_path, 
-        args.max_size,
-        args.filepath
-    )
+    # Dry run mode
+    if args.dry_run:
+        print("\nDRY RUN MODE - No messages will be published")
+        for img_file in image_files:
+            custom_path = process_path(img_file, str(path) if path.is_dir() else None, args.custom_dir)
+            print(f"Would publish: {img_file}")
+            print(f"  with path in payload: {custom_path}")
+        return
     
-    if success:
-        print(f"Successfully published image {args.image_path} to Pub/Sub")
-    else:
-        print(f"Failed to publish image to Pub/Sub")
+    # Process each image
+    total = len(image_files)
+    success_count = 0
+    
+    for i, img_file in enumerate(image_files, 1):
+        print(f"\nProcessing image {i}/{total}: {img_file}")
+        
+        # Process the filepath for the message payload
+        if args.filepath:
+            # If explicit filepath is provided, use it
+            custom_path = args.filepath
+        else:
+            # Otherwise, process the path
+            custom_path = process_path(img_file, str(path) if path.is_dir() else None, args.custom_dir)
+        
+        print(f"Using path in payload: {custom_path}")
+        
+        # Publish message
+        success = publish_message(
+            args.project, 
+            args.topic, 
+            img_file, 
+            args.max_size,
+            custom_path
+        )
+        
+        if success:
+            print(f"Successfully published image {img_file} to Pub/Sub")
+            success_count += 1
+        else:
+            print(f"Failed to publish image to Pub/Sub")
+    
+    # Final summary
+    if total > 1:
+        print(f"\nSummary: Successfully published {success_count}/{total} images to Pub/Sub")
         
 if __name__ == "__main__":
     main()
