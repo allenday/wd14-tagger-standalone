@@ -31,19 +31,26 @@ COPY setup_models.py /workspace/
 ENV IN_DOCKER_BUILD=1
 
 # IMPORTANT: Before building the Docker image, run:
-# python scripts/model_cache.py --output-dir hf_cache
+# python scripts/model_cache.py --output-dir hf_cache --force
 # This will download and cache the model files in the correct structure
+# The --force flag ensures any existing cache is rebuilt from scratch
 
 # Create huggingface cache directory
-RUN mkdir -p /root/.cache/huggingface
+RUN mkdir -p /root/.cache/huggingface/hub
 
 # Copy the entire huggingface cache structure that was prepared by model_cache.py
 # This includes model files in the exact structure that huggingface_hub expects
 COPY hf_cache/hub /root/.cache/huggingface/hub
 
-# Verify the model files are in place - this will show the actual paths used by huggingface
-RUN ls -la /root/.cache/huggingface/hub/models--Camais03--camie-tagger/blobs/ || echo "Model files not found!"
-RUN ls -la /root/.cache/huggingface/hub/models--Camais03--camie-tagger/snapshots/latest/ || echo "Snapshot files not found!"
+# Better debugging for cache structure
+RUN echo "Checking HuggingFace cache structure..." && \
+    find /root/.cache/huggingface -type d | sort && \
+    echo "Files in models directory:" && \
+    find /root/.cache/huggingface/hub -type f | sort
+
+# Verify the model files are in place
+RUN ls -la /root/.cache/huggingface/hub/models--Camais03--camie-tagger/blobs/ || echo "Model files not found in blobs directory!"
+RUN ls -la /root/.cache/huggingface/hub/models--Camais03--camie-tagger/snapshots/latest/ || echo "Snapshot files not found in latest directory!"
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1

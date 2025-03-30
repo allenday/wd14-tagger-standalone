@@ -38,14 +38,32 @@ class CamieTaggerInterrogator(AbsInterrogator):
     def download(self) -> tuple[str, str]:
         print(f"Loading {self.name} model file from {self.repo_id}", file=sys.stderr)
 
-        model_path = hf_hub_download(
-            repo_id=self.repo_id,
-            filename=self.model_path
-        )
-        tags_path = hf_hub_download(
-            repo_id=self.repo_id,
-            filename=self.tags_path,
-        )
+        # Try to download with local_files_only=True first to use cached files
+        try:
+            print(f"Attempting to load cached model files for {self.repo_id}", file=sys.stderr)
+            model_path = hf_hub_download(
+                repo_id=self.repo_id,
+                filename=self.model_path,
+                local_files_only=True
+            )
+            tags_path = hf_hub_download(
+                repo_id=self.repo_id,
+                filename=self.tags_path,
+                local_files_only=True
+            )
+            print(f"Successfully loaded cached model files from {model_path}", file=sys.stderr)
+        except Exception as e:
+            # If cached files not found, try to download from HuggingFace
+            print(f"Cached files not found, downloading from HuggingFace: {str(e)}", file=sys.stderr)
+            model_path = hf_hub_download(
+                repo_id=self.repo_id,
+                filename=self.model_path
+            )
+            tags_path = hf_hub_download(
+                repo_id=self.repo_id,
+                filename=self.tags_path,
+            )
+            
         return model_path, tags_path
 
     def load(self) -> None:

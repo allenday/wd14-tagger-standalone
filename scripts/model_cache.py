@@ -71,9 +71,15 @@ def setup_model_cache(output_dir="hf_cache", force=False):
         repo_path = hub_path / repo_dir_name
         snapshot_path = repo_path / "snapshots" / "latest"
         blobs_path = repo_path / "blobs"
+        refs_path = repo_path / "refs"
         
         snapshot_path.mkdir(exist_ok=True, parents=True)
         blobs_path.mkdir(exist_ok=True, parents=True)
+        refs_path.mkdir(exist_ok=True, parents=True)
+        
+        # Create main reference (important for HF to locate the model)
+        with open(refs_path / "main", "w") as f:
+            f.write("latest")
         
         logger.info(f"Processing model: {repo_id}")
         
@@ -138,9 +144,29 @@ def setup_model_cache(output_dir="hf_cache", force=False):
                     logger.info(f"Created fallback at {target_path}")
                     files_cached.append(f"{repo_id}/{file} -> {fallback_name} (FALLBACK)")
                 else:
-                    logger.error(f"Failed to download {file} after 3 attempts")
-                    logger.error(f"Please manually download it from huggingface.co/{repo_id}/resolve/main/{file}")
-                    logger.error(f"and place it in {blobs_path}")
+                    # For model files, attempt direct download
+                    try:
+                        logger.warning(f"Attempting direct download of {file}")
+                        import urllib.request
+                        direct_url = f"https://huggingface.co/{repo_id}/resolve/main/{file}"
+                        logger.info(f"Downloading from {direct_url}")
+                        
+                        # Generate a consistent filename
+                        direct_name = f"direct_{file}"
+                        target_path = blobs_path / direct_name
+                        
+                        urllib.request.urlretrieve(direct_url, target_path)
+                        
+                        # Create reference in snapshots
+                        with open(snapshot_path / file, "w") as f:
+                            f.write(f"../blobs/{direct_name}")
+                        
+                        logger.info(f"Created direct download at {target_path}")
+                        files_cached.append(f"{repo_id}/{file} -> {direct_name} (DIRECT)")
+                    except Exception as e:
+                        logger.error(f"Failed to directly download {file}: {str(e)}")
+                        logger.error(f"Please manually download it from huggingface.co/{repo_id}/resolve/main/{file}")
+                        logger.error(f"and place it in {blobs_path}")
     
     # Create metadata file to track what was cached
     metadata = {
@@ -151,6 +177,25 @@ def setup_model_cache(output_dir="hf_cache", force=False):
     
     with open(output_path / "cache_metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)
+    
+    # Verify the cache structure
+    logger.info("Verifying cache structure...")
+    all_dirs = []
+    all_files = []
+    
+    for root, dirs, files in os.walk(output_path):
+        for d in dirs:
+            all_dirs.append(os.path.join(root, d).replace(str(output_path), ''))
+        for f in files:
+            all_files.append(os.path.join(root, f).replace(str(output_path), ''))
+    
+    logger.info("Cache directory structure:")
+    for d in sorted(all_dirs):
+        logger.info(f"  DIR: {d}")
+    
+    logger.info("Cache files:")
+    for f in sorted(all_files):
+        logger.info(f"  FILE: {f}")
     
     logger.info(f"Model cache complete. Files cached:")
     for file in files_cached:

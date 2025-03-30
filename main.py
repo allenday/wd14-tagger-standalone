@@ -31,13 +31,40 @@ try:
     # This avoids errors during container build
     if os.environ.get("IN_DOCKER_BUILD") != "1":
         logger.info("Pre-loading model for faster cold start...")
+        
+        # Check the HuggingFace cache directory to see if files are available
+        hf_cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
+        logger.info(f"HuggingFace cache directory: {hf_cache_dir}")
+        if os.path.exists(hf_cache_dir):
+            cache_contents = os.listdir(hf_cache_dir)
+            logger.info(f"HuggingFace cache contents: {cache_contents}")
+            
+            model_dir = os.path.join(hf_cache_dir, "models--Camais03--camie-tagger")
+            if os.path.exists(model_dir):
+                logger.info(f"Found cached model directory: {model_dir}")
+                if os.path.exists(os.path.join(model_dir, "blobs")):
+                    logger.info(f"Blobs directory exists with contents: {os.listdir(os.path.join(model_dir, 'blobs'))}")
+                if os.path.exists(os.path.join(model_dir, "snapshots", "latest")):
+                    logger.info(f"Latest snapshot directory exists with contents: {os.listdir(os.path.join(model_dir, 'snapshots', 'latest'))}")
+            else:
+                logger.warning(f"Model directory not found in cache: {model_dir}")
+        else:
+            logger.warning(f"HuggingFace cache directory does not exist: {hf_cache_dir}")
+        
+        # Initialize the model
         interrogator_instance = interrogators["camie-tagger"]
         interrogator_instance.override_execution_provider(['CPUExecutionProvider'])
+        
+        # Force pre-load the model by calling load()
+        interrogator_instance.load()
+        
         logger.info("Model pre-loaded successfully")
     else:
         logger.info("Skipping model pre-load during Docker build")
 except Exception as e:
     logger.error(f"Error pre-loading model: {str(e)}")
+    import traceback
+    logger.error(f"Traceback: {traceback.format_exc()}")
     # Continue anyway, we'll try to load it again when needed
 
 def initialize_model(model_name="camie-tagger"):
