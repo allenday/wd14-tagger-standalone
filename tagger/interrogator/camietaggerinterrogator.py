@@ -5,6 +5,8 @@ https://huggingface.co/Camais03/camie-tagger/blob/main/onnx_inference.py
 """
 import sys
 import json
+import os
+import logging
 
 from typing import cast
 
@@ -15,6 +17,8 @@ from huggingface_hub import hf_hub_download
 from onnxruntime import InferenceSession
 
 from tagger.interrogator import AbsInterrogator
+
+logger = logging.getLogger(__name__)
 
 class CamieTaggerInterrogator(AbsInterrogator):
     repo_id: str
@@ -37,32 +41,51 @@ class CamieTaggerInterrogator(AbsInterrogator):
 
     def download(self) -> tuple[str, str]:
         print(f"Loading {self.name} model file from {self.repo_id}", file=sys.stderr)
-
-        # Try to download with local_files_only=True first to use cached files
+        
+        # Just try to download directly - don't use local_files_only which is causing problems
+        print(f"Downloading model files for {self.repo_id}", file=sys.stderr)
         try:
-            print(f"Attempting to load cached model files for {self.repo_id}", file=sys.stderr)
-            model_path = hf_hub_download(
-                repo_id=self.repo_id,
-                filename=self.model_path,
-                local_files_only=True
-            )
-            tags_path = hf_hub_download(
-                repo_id=self.repo_id,
-                filename=self.tags_path,
-                local_files_only=True
-            )
-            print(f"Successfully loaded cached model files from {model_path}", file=sys.stderr)
-        except Exception as e:
-            # If cached files not found, try to download from HuggingFace
-            print(f"Cached files not found, downloading from HuggingFace: {str(e)}", file=sys.stderr)
             model_path = hf_hub_download(
                 repo_id=self.repo_id,
                 filename=self.model_path
             )
             tags_path = hf_hub_download(
                 repo_id=self.repo_id,
-                filename=self.tags_path,
+                filename=self.tags_path
             )
+            print(f"Successfully downloaded model files to {model_path}", file=sys.stderr)
+        except Exception as e:
+            print(f"ERROR downloading model files: {str(e)}", file=sys.stderr)
+            
+            # Direct fallback - check for files in the snapshots directory
+            cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
+            snapshot_dir = os.path.join(
+                cache_dir, 
+                f"models--{self.repo_id.replace('/', '--')}", 
+                "snapshots", 
+                "latest"
+            )
+            
+            model_path = os.path.join(snapshot_dir, self.model_path)
+            tags_path = os.path.join(snapshot_dir, self.tags_path)
+            
+            print(f"Falling back to snapshot files: {model_path}", file=sys.stderr)
+            
+            if os.path.exists(model_path) and os.path.exists(tags_path):
+                print(f"Using snapshot files directly", file=sys.stderr)
+            else:
+                print(f"Snapshot files not found, trying direct backup location", file=sys.stderr)
+                # Check our direct backup location as last resort
+                backup_model_path = os.path.join("/workspace/models", os.path.basename(self.model_path))
+                backup_tags_path = os.path.join("/workspace/models", os.path.basename(self.tags_path))
+                
+                if os.path.exists(backup_model_path) and os.path.exists(backup_tags_path):
+                    print(f"Using backup files from /workspace/models", file=sys.stderr)
+                    model_path = backup_model_path
+                    tags_path = backup_tags_path
+                else:
+                    print(f"All fallbacks failed, cannot continue", file=sys.stderr)
+                    raise
             
         return model_path, tags_path
 

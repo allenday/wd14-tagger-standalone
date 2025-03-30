@@ -111,8 +111,16 @@ def setup_model_cache(output_dir="hf_cache", force=False):
                     shutil.copy(file_path, target_path)
                     
                     # Also create a reference file in snapshots/latest
-                    with open(snapshot_path / file, "w") as f:
-                        f.write(f"../blobs/{blob_name}")
+                    # The reference should be a symlink, not a text file
+                    reference_path = snapshot_path / file
+                    target_path = f"../blobs/{blob_name}"
+                    
+                    # Create proper reference file
+                    with open(reference_path, "w") as f:
+                        f.write(target_path)
+                    
+                    # Print content to verify
+                    logger.info(f"Created reference at {reference_path} -> {target_path}")
                     
                     files_cached.append(f"{repo_id}/{file} -> {blob_name}")
                     success = True
@@ -138,8 +146,15 @@ def setup_model_cache(output_dir="hf_cache", force=False):
                         json.dump(tag_mapping, f)
                     
                     # Create reference in snapshots
-                    with open(snapshot_path / file, "w") as f:
-                        f.write(f"../blobs/{fallback_name}")
+                    reference_path = snapshot_path / file
+                    target_path = f"../blobs/{fallback_name}"
+                    
+                    # Create proper reference file
+                    with open(reference_path, "w") as f:
+                        f.write(target_path)
+                    
+                    # Print content to verify
+                    logger.info(f"Created reference at {reference_path} -> {target_path}")
                     
                     logger.info(f"Created fallback at {target_path}")
                     files_cached.append(f"{repo_id}/{file} -> {fallback_name} (FALLBACK)")
@@ -158,8 +173,15 @@ def setup_model_cache(output_dir="hf_cache", force=False):
                         urllib.request.urlretrieve(direct_url, target_path)
                         
                         # Create reference in snapshots
-                        with open(snapshot_path / file, "w") as f:
-                            f.write(f"../blobs/{direct_name}")
+                        reference_path = snapshot_path / file
+                        target_path = f"../blobs/{direct_name}"
+                        
+                        # Create proper reference file
+                        with open(reference_path, "w") as f:
+                            f.write(target_path)
+                        
+                        # Print content to verify
+                        logger.info(f"Created reference at {reference_path} -> {target_path}")
                         
                         logger.info(f"Created direct download at {target_path}")
                         files_cached.append(f"{repo_id}/{file} -> {direct_name} (DIRECT)")
