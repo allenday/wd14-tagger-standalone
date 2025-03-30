@@ -26,8 +26,17 @@ def resize_image(image_path, max_size=512):
     print(f"Resized image to {img.width}x{img.height} ({len(image_data)/1024:.1f} KB)")
     return image_data
 
-def publish_message(project_id, topic_id, image_path, max_size=512):
-    """Publish a message to Pub/Sub with the image data in Cloud Function format."""
+def publish_message(project_id, topic_id, image_path, max_size=512, filepath=None):
+    """Publish a message to Pub/Sub with the image data in Cloud Function format.
+    
+    Args:
+        project_id: Google Cloud project ID
+        topic_id: Pub/Sub topic ID
+        image_path: Local path to the image file to publish
+        max_size: Maximum dimension for image resizing
+        filepath: Optional custom filepath to include in the message payload. 
+                 If not provided, the actual image_path will be used.
+    """
     # Check if file exists
     path = Path(image_path)
     if not path.exists() or not path.is_file():
@@ -39,7 +48,7 @@ def publish_message(project_id, topic_id, image_path, max_size=512):
     
     # Step 1: Create inner message with image data
     inner_message = {
-        "filepath": str(path),
+        "filepath": filepath if filepath else str(path),
         "timestamp": "2023-01-01T12:00:00Z",
         "image": base64.b64encode(image_data).decode("utf-8")
     }
@@ -105,8 +114,16 @@ def publish_message(project_id, topic_id, image_path, max_size=512):
         print(traceback.format_exc())
         return False
 
-def create_test_message(image_path, max_size=512, output_file=None):
-    """Create a test message file without publishing."""
+def create_test_message(image_path, max_size=512, output_file=None, filepath=None):
+    """Create a test message file without publishing.
+    
+    Args:
+        image_path: Local path to the image file to publish
+        max_size: Maximum dimension for image resizing
+        output_file: Optional file to save the test message to
+        filepath: Optional custom filepath to include in the message payload.
+                 If not provided, the actual image_path will be used.
+    """
     # Check if file exists
     path = Path(image_path)
     if not path.exists() or not path.is_file():
@@ -118,7 +135,7 @@ def create_test_message(image_path, max_size=512, output_file=None):
     
     # Step 1: Create inner message with image data
     inner_message = {
-        "filepath": str(path),
+        "filepath": filepath if filepath else str(path),
         "timestamp": "2023-01-01T12:00:00Z",
         "image": base64.b64encode(image_data).decode("utf-8")
     }
@@ -165,6 +182,7 @@ def main():
     parser.add_argument("image_path", help="Path to the image file")
     parser.add_argument("--project", help="Google Cloud project ID")
     parser.add_argument("--topic", help="Pub/Sub topic ID")
+    parser.add_argument("--filepath", help="Custom filepath to include in the message payload (different from the actual file path)")
     parser.add_argument("--max-size", type=int, default=256, 
                         help="Maximum dimension for resizing (default: 256)")
     parser.add_argument("--check-auth", action="store_true", 
@@ -187,7 +205,7 @@ def main():
     
     # Save-only mode
     if args.save_only:
-        create_test_message(args.image_path, args.max_size, args.save_only)
+        create_test_message(args.image_path, args.max_size, args.save_only, args.filepath)
         return
     
     # Validate required args for publishing
@@ -201,7 +219,13 @@ def main():
         return
     
     # Publish message
-    success = publish_message(args.project, args.topic, args.image_path, args.max_size)
+    success = publish_message(
+        args.project, 
+        args.topic, 
+        args.image_path, 
+        args.max_size,
+        args.filepath
+    )
     
     if success:
         print(f"Successfully published image {args.image_path} to Pub/Sub")

@@ -45,21 +45,35 @@ def load_env():
         "collection": os.getenv("QDRANT_COLLECTION")
     }
 
-def check_vector(filepath, env_vars):
-    """Check if a vector exists for the given filepath."""
+def check_vector(filepath, custom_env=None, custom_filepath=None):
+    """Check if a vector exists for the given filepath.
+    
+    Args:
+        filepath: The local filepath that was processed
+        custom_env: Optional custom environment variables
+        custom_filepath: Optional custom filepath that was used in the message
+    """
+    # Load default environment if not provided
+    env_vars = custom_env if custom_env else load_env()
+    
     # Connect to Qdrant
     client = QdrantClient(
-        url=env_vars["url"],
-        port=env_vars["port"],
-        api_key=env_vars["api_key"],
+        url=env_vars["url"] if "url" in env_vars else os.getenv("QDRANT_URL"),
+        port=int(env_vars["port"] if "port" in env_vars else os.getenv("QDRANT_PORT")),
+        api_key=env_vars["api_key"] if "api_key" in env_vars else os.getenv("QDRANT_API_KEY"),
     )
     
-    # Create point ID from filepath (same method used in the Cloud Function)
-    point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, filepath))
-    print(f"Checking for vector with ID: {point_id}")
-    print(f"Generated from filepath: {filepath}")
+    # Use the custom filepath for ID generation if provided
+    path_for_id = custom_filepath if custom_filepath else filepath
     
-    collection_name = env_vars["collection"]
+    # Create point ID from filepath (same method used in the Cloud Function)
+    point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, path_for_id))
+    print(f"Checking for vector with ID: {point_id}")
+    print(f"Generated from filepath: {path_for_id}")
+    if custom_filepath:
+        print(f"Original filepath: {filepath}")
+    
+    collection_name = env_vars["collection"] if "collection" in env_vars else os.getenv("QDRANT_COLLECTION")
     
     # Check collection status
     try:

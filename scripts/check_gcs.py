@@ -32,12 +32,18 @@ def load_env():
     
     return bucket_name
 
-def check_gcs(filepath, bucket_name):
-    """Check if an image exists in GCS."""
-    # Get filename from filepath
-    path = Path(filepath)
-    filename = path.name
-    stem = path.stem
+def check_gcs(filepath, bucket_name, custom_filepath=None):
+    """Check if an image exists in GCS.
+    
+    Args:
+        filepath: The local filepath that was processed
+        bucket_name: The GCS bucket name
+        custom_filepath: Optional custom filepath that was used in the message
+    """
+    # Use custom filepath if provided, otherwise use the original filepath
+    path_to_check = Path(custom_filepath if custom_filepath else filepath)
+    filename = path_to_check.name
+    stem = path_to_check.stem
     
     # Expected GCS path based on the Cloud Function logic
     expected_blob_name = f"{stem}/{filename}"

@@ -43,7 +43,7 @@ def load_env():
         "collection_name": os.getenv("QDRANT_COLLECTION")
     }
 
-def test_workflow(image_path, max_retries=5, delay=10):
+def test_workflow(image_path, max_retries=5, delay=10, custom_filepath=None):
     """Test the full image processing workflow."""
     # Load environment variables
     env = load_env()
@@ -58,6 +58,11 @@ def test_workflow(image_path, max_retries=5, delay=10):
     if not path.exists() or not path.is_file():
         print(f"Error: Image {image_path} does not exist")
         return False
+        
+    # Set custom filepath in environment if provided
+    if custom_filepath:
+        os.environ["CUSTOM_FILEPATH"] = custom_filepath
+        print(f"Using custom filepath in message: {custom_filepath}")
     
     # Step 1: Publish image to Pub/Sub
     print(f"\n-----\nStep 1: Publishing image to Pub/Sub\n-----")
@@ -65,7 +70,8 @@ def test_workflow(image_path, max_retries=5, delay=10):
         project_id=env["project_id"],
         topic_id=env["topic_id"],
         image_path=str(path),
-        max_size=512  # Resize to 512px max dimension
+        max_size=512,  # Resize to 512px max dimension
+        filepath=os.environ.get("CUSTOM_FILEPATH", str(path))  # Use CUSTOM_FILEPATH env var if set
     )
     
     if not success:
@@ -84,8 +90,12 @@ def test_workflow(image_path, max_retries=5, delay=10):
         print(f"Waiting {delay} seconds before checking GCS (attempt {attempt+1}/{max_retries})...")
         time.sleep(delay)
         
-        # Check GCS
-        found_in_gcs = check_gcs(str(path), env["bucket_name"])
+        # Check GCS using the custom filepath if it was provided
+        found_in_gcs = check_gcs(
+            str(path), 
+            env["bucket_name"],
+            os.environ.get("CUSTOM_FILEPATH")
+        )
         
         if found_in_gcs:
             print("Image found in GCS!")
@@ -107,8 +117,11 @@ def test_workflow(image_path, max_retries=5, delay=10):
             print(f"Waiting {delay} seconds before checking Qdrant (attempt {attempt+1}/{max_retries})...")
             time.sleep(delay)
         
-        # Check Qdrant
-        found_in_qdrant = check_vector(str(path), {"collection": env["collection_name"]})
+        # Check Qdrant using the custom filepath if it was provided
+        found_in_qdrant = check_vector(
+            str(path),
+            custom_filepath=os.environ.get("CUSTOM_FILEPATH")
+        )
         
         if found_in_qdrant:
             print("Vector found in Qdrant!")
@@ -137,10 +150,11 @@ def main():
     parser.add_argument("image_path", help="Path to the image file to process")
     parser.add_argument("--retries", type=int, default=5, help="Number of times to check for results")
     parser.add_argument("--delay", type=int, default=10, help="Seconds to wait between checks")
+    parser.add_argument("--filepath", help="Custom filepath to include in the message payload (different from the actual file path)")
     
     args = parser.parse_args()
     
-    success = test_workflow(args.image_path, args.retries, args.delay)
+    success = test_workflow(args.image_path, args.retries, args.delay, args.filepath)
     
     if success:
         print("\nAll steps completed successfully!")
