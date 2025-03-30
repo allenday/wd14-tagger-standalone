@@ -56,17 +56,37 @@ class CamieTaggerInterrogator(AbsInterrogator):
         raise RuntimeError("Failed to load model files through any method")
     
     def _try_load_from_blobs(self) -> tuple[str, str]:
-        """Try to load directly from the HuggingFace cache blobs directory."""
+        """Try to load directly from the HuggingFace cache."""
+        # First try to find the metadata file in the snapshots directory
+        # This is where the real model_initial_metadata.json would be
         cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
         model_dir = os.path.join(cache_dir, f"models--{self.repo_id.replace('/', '--')}")
-        blobs_dir = os.path.join(model_dir, "blobs")
         
-        # List all files in the blobs directory
+        # First check in snapshots for the metadata file (highest priority)
+        snapshot_dir = os.path.join(model_dir, "snapshots")
+        if os.path.exists(snapshot_dir):
+            print(f"Found snapshots directory: {snapshot_dir}", file=sys.stderr)
+            
+            # Look through all snapshot directories
+            for snap_version in os.listdir(snapshot_dir):
+                snap_path = os.path.join(snapshot_dir, snap_version)
+                if os.path.isdir(snap_path):
+                    metadata_path = os.path.join(snap_path, self.tags_path)
+                    if os.path.exists(metadata_path):
+                        print(f"Found metadata in snapshot: {metadata_path}", file=sys.stderr)
+                        
+                        # Now find the model file in the same directory
+                        model_file = os.path.join(snap_path, self.model_path)
+                        if os.path.exists(model_file):
+                            print(f"Found model in snapshot: {model_file}", file=sys.stderr)
+                            return model_file, metadata_path
+        
+        # If not found in snapshots, check blobs directory
+        blobs_dir = os.path.join(model_dir, "blobs")
         if os.path.exists(blobs_dir):
             print(f"Found blobs directory: {blobs_dir}", file=sys.stderr)
             
-            # Look for the model file - it might have any name in blobs
-            # So we'll check all files and look for onnx files of significant size
+            # Look for files in the blobs directory
             blob_files = os.listdir(blobs_dir)
             
             # Find model file
@@ -78,18 +98,26 @@ class CamieTaggerInterrogator(AbsInterrogator):
                         print(f"Found model file in blobs: {model_blob}", file=sys.stderr)
                         break
             
-            # Find tag mapping file
+            # Find metadata file - specifically look for model_initial_metadata.json
             tags_blob = None
             for f in blob_files:
-                if f.endswith('.json') or 'tag_mapping' in f or self.tags_path in f:
+                if f == "model_initial_metadata.json" or self.tags_path in f:
                     tags_blob = os.path.join(blobs_dir, f)
                     print(f"Found tags file in blobs: {tags_blob}", file=sys.stderr)
                     break
             
+            # Fall back to any JSON file if needed
+            if tags_blob is None:
+                for f in blob_files:
+                    if f.endswith('.json'):
+                        tags_blob = os.path.join(blobs_dir, f)
+                        print(f"Found fallback tags file in blobs: {tags_blob}", file=sys.stderr)
+                        break
+            
             if model_blob and tags_blob:
                 return model_blob, tags_blob
                 
-        print("Could not find files in blobs directory", file=sys.stderr)
+        print("Could not find files in cache directory", file=sys.stderr)
         return None, None
     
     def _try_huggingface_api(self) -> tuple[str, str]:
@@ -119,6 +147,15 @@ class CamieTaggerInterrogator(AbsInterrogator):
 
         with open(tags_path, 'r', encoding='utf-8') as filen:
             self.metadata = json.load(filen)
+            
+        # Check if we are using a fallback mapping
+        is_fallback = all(tag.startswith("tag_") for tag in list(self.metadata['idx_to_tag'].values())[:100])
+        if is_fallback:
+            print(f"Detected fallback tag mapping with {len(self.metadata['idx_to_tag'])} entries", file=sys.stderr)
+            
+            # Ensure we have a reasonable number of tags
+            if len(self.metadata['idx_to_tag']) < 1000:
+                print(f"Fallback mapping is too small, we'll continue but tags may display as unknown-X", file=sys.stderr)
 
     def interrogate(
         self,
