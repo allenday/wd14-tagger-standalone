@@ -13,8 +13,9 @@ from pathlib import Path
 from PIL import Image
 from io import BytesIO
 from google.cloud import pubsub_v1
+from tqdm import tqdm
 
-def resize_image(image_path, max_size=512):
+def resize_image(image_path, max_size=512, verbose=False):
     """Resize an image while maintaining aspect ratio."""
     img = Image.open(image_path)
     # Resize image while maintaining aspect ratio
@@ -23,10 +24,11 @@ def resize_image(image_path, max_size=512):
     buffer = BytesIO()
     img.save(buffer, format="JPEG")
     image_data = buffer.getvalue()
-    print(f"Resized image to {img.width}x{img.height} ({len(image_data)/1024:.1f} KB)")
+    if verbose:
+        print(f"Resized image to {img.width}x{img.height} ({len(image_data)/1024:.1f} KB)")
     return image_data
 
-def publish_message(project_id, topic_id, image_path, max_size=512, filepath=None):
+def publish_message(project_id, topic_id, image_path, max_size=512, filepath=None, verbose=False):
     """Publish a message to Pub/Sub with the image data in Cloud Function format.
     
     Args:
@@ -36,15 +38,17 @@ def publish_message(project_id, topic_id, image_path, max_size=512, filepath=Non
         max_size: Maximum dimension for image resizing
         filepath: Optional custom filepath to include in the message payload. 
                  If not provided, the actual image_path will be used.
+        verbose: Whether to print detailed progress messages
     """
     # Check if file exists
     path = Path(image_path)
     if not path.exists() or not path.is_file():
-        print(f"Error: File {image_path} does not exist or is not a file")
+        if verbose:
+            print(f"Error: File {image_path} does not exist or is not a file")
         return False
     
     # Resize image - smaller than default to ensure message isn't too large
-    image_data = resize_image(image_path, max_size)
+    image_data = resize_image(image_path, max_size, verbose)
     
     # Step 1: Create inner message with image data
     path_str = filepath if filepath else str(path)
@@ -58,7 +62,8 @@ def publish_message(project_id, topic_id, image_path, max_size=512, filepath=Non
             bucket_name, object_path = parts
             # Create the HTTPS URL
             path_str = f"https://storage.cloud.google.com/{bucket_name}/{object_path}"
-            print(f"Converted GCS path to HTTPS URL: {path_str}")
+            if verbose:
+                print(f"Converted GCS path to HTTPS URL: {path_str}")
     
     inner_message = {
         "filepath": path_str,
@@ -80,11 +85,13 @@ def publish_message(project_id, topic_id, image_path, max_size=512, filepath=Non
     # Step 4: Convert to final JSON for sending
     message_data = json.dumps(pubsub_message).encode("utf-8")
     
-    print(f"Message size: {len(message_data)/1024:.1f} KB")
+    if verbose:
+        print(f"Message size: {len(message_data)/1024:.1f} KB")
     
     # Publish to Pub/Sub
     try:
-        print(f"Connecting to Pub/Sub topic {project_id}/{topic_id}...")
+        if verbose:
+            print(f"Connecting to Pub/Sub topic {project_id}/{topic_id}...")
         
         # Create a publisher client with explicit timeout settings
         client_options = {
@@ -93,41 +100,38 @@ def publish_message(project_id, topic_id, image_path, max_size=512, filepath=Non
         publisher = pubsub_v1.PublisherClient(client_options=client_options)
         topic_path = publisher.topic_path(project_id, topic_id)
         
-        # Check if topic exists first
+        # Check if topic exists first (only on first message)
         try:
             publisher.get_topic(request={"topic": topic_path})
-            print(f"Topic {topic_path} exists")
+            if verbose:
+                print(f"Topic {topic_path} exists")
         except Exception as e:
-            print(f"Warning: Could not verify topic exists: {e}")
+            if verbose:
+                print(f"Warning: Could not verify topic exists: {e}")
         
-        print(f"Publishing message to {topic_path}...")
+        if verbose:
+            print(f"Publishing message to {topic_path}...")
         
-        # Set up callback for publish
-        def callback(future):
-            try:
-                message_id = future.result(timeout=60)
-                print(f"Published message ID: {message_id}")
-            except Exception as e:
-                print(f"Publishing failed: {e}")
-        
-        # Publish asynchronously
+        # Publish message
         future = publisher.publish(topic_path, message_data)
-        future.add_done_callback(callback)
         
         # Wait for the publish to complete
-        print("Waiting for publish to complete...")
         message_id = future.result(timeout=60)
-        print(f"Published message ID: {message_id}")
-        print(f"Message sent to {topic_path}")
+        
+        if verbose:
+            print(f"Published message ID: {message_id}")
+            print(f"Message sent to {topic_path}")
+            
         return True
         
     except Exception as e:
         import traceback
-        print(f"Error publishing message: {e}")
-        print(traceback.format_exc())
+        if verbose:
+            print(f"Error publishing message: {e}")
+            print(traceback.format_exc())
         return False
 
-def create_test_message(image_path, max_size=512, output_file=None, filepath=None):
+def create_test_message(image_path, max_size=512, output_file=None, filepath=None, verbose=False):
     """Create a test message file without publishing.
     
     Args:
@@ -136,15 +140,17 @@ def create_test_message(image_path, max_size=512, output_file=None, filepath=Non
         output_file: Optional file to save the test message to
         filepath: Optional custom filepath to include in the message payload.
                  If not provided, the actual image_path will be used.
+        verbose: Whether to print detailed progress messages
     """
     # Check if file exists
     path = Path(image_path)
     if not path.exists() or not path.is_file():
-        print(f"Error: File {image_path} does not exist or is not a file")
+        if verbose:
+            print(f"Error: File {image_path} does not exist or is not a file")
         return False
     
     # Resize image
-    image_data = resize_image(image_path, max_size)
+    image_data = resize_image(image_path, max_size, verbose)
     
     # Step 1: Create inner message with image data
     path_str = filepath if filepath else str(path)
@@ -206,7 +212,7 @@ def find_image_files(directory_path):
         directory_path: Path to the directory to search
         
     Returns:
-        List of file paths
+        List of file paths, sorted alphabetically
     """
     image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp']
     image_files = []
@@ -221,13 +227,24 @@ def find_image_files(directory_path):
         else:
             return []
             
+    print(f"Scanning directory {path} for images...")
+    
     # Otherwise, walk the directory
-    for root, _, files in os.walk(path):
-        for file in files:
+    for root, dirs, files in os.walk(path):
+        # Sort directories for consistent traversal
+        dirs.sort()
+        
+        # Sort files in current directory
+        sorted_files = sorted(files)
+        
+        for file in sorted_files:
             file_path = Path(root) / file
             if file_path.suffix.lower() in image_extensions:
                 image_files.append(str(file_path))
                 
+    # Sort the final list for consistent ordering
+    image_files.sort()
+    
     return image_files
 
 def process_path(path_str, base_dir=None, custom_dir=None):
@@ -284,6 +301,8 @@ def main():
                         help="Process directories recursively")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would be published without actually publishing")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Show detailed progress information for each message")
     
     args = parser.parse_args()
     
@@ -320,7 +339,7 @@ def main():
         if len(image_files) > 1:
             print("Error: --save-only only works with a single image file")
             sys.exit(1)
-        create_test_message(image_files[0], args.max_size, args.save_only, args.filepath)
+        create_test_message(image_files[0], args.max_size, args.save_only, args.filepath, args.verbose)
         return
     
     # Validate required args for publishing
@@ -346,9 +365,10 @@ def main():
     total = len(image_files)
     success_count = 0
     
-    for i, img_file in enumerate(image_files, 1):
-        print(f"\nProcessing image {i}/{total}: {img_file}")
-        
+    # Create progress bar
+    progress_bar = tqdm(total=total, desc="Publishing images", unit="image")
+    
+    for img_file in image_files:
         # Process the filepath for the message payload
         if args.filepath:
             # If explicit filepath is provided, use it
@@ -357,7 +377,8 @@ def main():
             # Otherwise, process the path
             custom_path = process_path(img_file, str(path) if path.is_dir() else None, args.custom_dir)
         
-        print(f"Using path in payload: {custom_path}")
+        # Update progress bar description
+        progress_bar.set_postfix_str(f"Processing: {Path(img_file).name}")
         
         # Publish message
         success = publish_message(
@@ -365,18 +386,27 @@ def main():
             args.topic, 
             img_file, 
             args.max_size,
-            custom_path
+            custom_path,
+            args.verbose
         )
         
         if success:
-            print(f"Successfully published image {img_file} to Pub/Sub")
             success_count += 1
-        else:
-            print(f"Failed to publish image to Pub/Sub")
+        
+        # Update progress bar
+        progress_bar.update(1)
+    
+    # Close progress bar
+    progress_bar.close()
     
     # Final summary
     if total > 1:
         print(f"\nSummary: Successfully published {success_count}/{total} images to Pub/Sub")
+        
+    # Print message about checking logs for results
+    if success_count > 0:
+        print("\nTo check processing status in Cloud Run logs, use:")
+        print(f"gcloud logging read \"resource.type=cloud_run_revision AND resource.labels.service_name=YOUR_SERVICE_NAME\" --project={args.project} --limit=20")
         
 if __name__ == "__main__":
     main()
