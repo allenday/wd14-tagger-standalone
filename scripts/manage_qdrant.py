@@ -68,13 +68,13 @@ def initialize_qdrant_client(env_vars):
         sys.exit(1)
 
 def create_collection(client, collection_name, overwrite=False, with_whash=True):
-    """Create a new Qdrant collection with optional wavelet hash vector.
+    """Create a new Qdrant collection.
     
     Args:
         client: Qdrant client
         collection_name: Name of the collection to create
         overwrite: Whether to overwrite existing collection
-        with_whash: Whether to include a wavelet hash vector field
+        with_whash: Whether to include a wavelet hash vector (kept for compatibility but now ignored)
     """
     try:
         # Check if collection exists
@@ -93,54 +93,24 @@ def create_collection(client, collection_name, overwrite=False, with_whash=True)
         
         logger.info(f"Creating collection '{collection_name}'...")
         
-        # Configure vectors based on whether we include the wavelet hash
-        if with_whash:
-            logger.info("Creating collection with tag vector and wavelet hash vector")
-            # Create collection with both tag vector and wavelet hash vector
-            client.create_collection(
-                collection_name=collection_name,
-                vectors_config={
-                    # The original vector for tag information
-                    "tag_vector": models.VectorParams(
-                        size=100,  # Dummy size for the tag dense vector
-                        distance=models.Distance.COSINE
-                    ),
-                    # The vector for wavelet hash (256 bits = 256 dimensions)
-                    "whash_vector": models.VectorParams(
-                        size=256,  # Size for wavelet hash vector (16x16 bits)
-                        distance=models.Distance.DOT  # Use DOT product as fallback since HAMMING might not be supported
-                    )
-                },
-                sparse_vectors_config={
-                    "camie": models.SparseVectorParams(
-                        # No size limitation needed for sparse vectors
-                        # Only non-zero elements are stored
-                    )
-                },
-                optimizers_config=models.OptimizersConfigDiff(
-                    indexing_threshold=0  # Index immediately
+        # Create collection with wavelet hash as primary vector
+        logger.info("Creating collection with wavelet hash as primary vector and sparse vector support")
+        client.create_collection(
+            collection_name=collection_name,
+            vectors_config=models.VectorParams(
+                size=256,  # Use wavelet hash size (256 bits) as primary vector
+                distance=models.Distance.DOT  # Use DOT product for binary vector similarity
+            ),
+            sparse_vectors_config={
+                "camie": models.SparseVectorParams(
+                    # No size limitation needed for sparse vectors
+                    # Only non-zero elements are stored
                 )
+            },
+            optimizers_config=models.OptimizersConfigDiff(
+                indexing_threshold=0  # Index immediately
             )
-        else:
-            logger.info("Creating collection with tag vector only")
-            # Create collection with sparse vector configuration suitable for tags
-            # For sparse vectors, we need a dummy dense vector config and the sparse vector config
-            client.create_collection(
-                collection_name=collection_name,
-                vectors_config=models.VectorParams(
-                    size=100,  # Dummy size for the dense vector (not actually used)
-                    distance=models.Distance.COSINE
-                ),
-                sparse_vectors_config={
-                    "camie": models.SparseVectorParams(
-                        # No size limitation needed for sparse vectors
-                        # Only non-zero elements are stored
-                    )
-                },
-                optimizers_config=models.OptimizersConfigDiff(
-                    indexing_threshold=0  # Index immediately
-                )
-            )
+        )
         
         logger.info(f"Collection '{collection_name}' created successfully")
         
@@ -214,7 +184,7 @@ def list_collections(client):
         return []
 
 def update_collection_with_whash(client, collection_name):
-    """Update an existing collection to add wavelet hash vector support.
+    """Update an existing collection to use wavelet hash as the primary vector.
     
     This requires recreating the collection while preserving its data.
     
@@ -237,12 +207,12 @@ def update_collection_with_whash(client, collection_name):
         # Get collection info
         info = client.get_collection(collection_name=collection_name)
         
-        # Check if collection already has whash_vector
-        if "whash_vector" in info.config.params.vectors:
-            logger.info(f"Collection '{collection_name}' already has wavelet hash vector, no update needed")
+        # Check if collection already has the correct configuration (256-dimensional primary vector)
+        if not hasattr(info.config.params, 'vectors') and hasattr(info.config.params, 'size') and info.config.params.size == 256:
+            logger.info(f"Collection '{collection_name}' already has wavelet hash as primary vector, no update needed")
             return True
         
-        logger.info(f"Updating collection '{collection_name}' to add wavelet hash vector")
+        logger.info(f"Updating collection '{collection_name}' to use wavelet hash as primary vector")
         
         # Create a temporary collection name
         temp_collection_name = f"{collection_name}_temp"
@@ -252,22 +222,14 @@ def update_collection_with_whash(client, collection_name):
             logger.info(f"Temporary collection '{temp_collection_name}' exists, deleting...")
             client.delete_collection(collection_name=temp_collection_name)
         
-        # Create a new collection with whash support
-        logger.info(f"Creating temporary collection '{temp_collection_name}' with wavelet hash support")
+        # Create a new collection with whash as primary vector
+        logger.info(f"Creating temporary collection '{temp_collection_name}' with wavelet hash as primary vector")
         client.create_collection(
             collection_name=temp_collection_name,
-            vectors_config={
-                # The original vector for tag information
-                "tag_vector": models.VectorParams(
-                    size=100,  # Dummy size for the tag dense vector
-                    distance=models.Distance.COSINE
-                ),
-                # The vector for wavelet hash (256 bits = 256 dimensions)
-                "whash_vector": models.VectorParams(
-                    size=256,  # Size for wavelet hash vector (16x16 bits)
-                    distance=models.Distance.DOT  # Use DOT product as fallback since HAMMING might not be supported
-                )
-            },
+            vectors_config=models.VectorParams(
+                size=256,  # Use wavelet hash size (256 bits) as primary vector
+                distance=models.Distance.DOT  # Use DOT product for binary vector similarity
+            ),
             sparse_vectors_config={
                 "camie": models.SparseVectorParams()
             },
@@ -304,7 +266,7 @@ def update_collection_with_whash(client, collection_name):
             new_collection_name=collection_name
         )
         
-        logger.info(f"Collection '{collection_name}' successfully updated with wavelet hash support")
+        logger.info(f"Collection '{collection_name}' successfully updated to use wavelet hash as primary vector")
         logger.info("Note: The collection is now empty and will need to be repopulated with data")
         logger.info("Any existing entries will need to be reimported with wavelet hash values")
         

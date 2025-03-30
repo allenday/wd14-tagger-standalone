@@ -58,56 +58,53 @@ def initialize_qdrant_client():
             
             if collection_name not in collection_names:
                 logger.info(f"Creating collection {collection_name}")
-                # Create collection with both sparse vector for tags and a vector for wavelet hash
+                # Create collection with wavelet hash as primary vector and sparse vector support
                 qdrant_client.create_collection(
                     collection_name=collection_name,
-                    vectors_config={
-                        # The original vector for tag information
-                        "tag_vector": models.VectorParams(
-                            size=100,  # Dummy size for the tag dense vector
-                            distance=models.Distance.COSINE
-                        ),
-                        # The new vector for wavelet hash (256 bits = 256 dimensions)
-                        "whash_vector": models.VectorParams(
-                            size=256,  # Size for wavelet hash vector (16x16 bits)
-                            distance=models.Distance.DOT  # Use DOT product as fallback since HAMMING might not be supported
-                        )
-                    },
+                    vectors_config=models.VectorParams(
+                        size=256,  # Use wavelet hash size (256 bits) as primary vector
+                        distance=models.Distance.DOT  # Use DOT product for binary vector similarity
+                    ),
                     sparse_vectors_config={
                         "camie": models.SparseVectorParams()
-                    }
+                    },
+                    optimizers_config=models.OptimizersConfigDiff(
+                        indexing_threshold=0  # Index immediately
+                    )
                 )
-                logger.info("Created collection with tag vector and wavelet hash vector")
+                
+                # Create payload indices for faster searches
+                qdrant_client.create_payload_index(
+                    collection_name=collection_name,
+                    field_name="file",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
+                qdrant_client.create_payload_index(
+                    collection_name=collection_name,
+                    field_name="gcs_uri",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
+                qdrant_client.create_payload_index(
+                    collection_name=collection_name,
+                    field_name="https_uri",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
+                
+                logger.info("Created collection with wavelet hash as primary vector and sparse vector support")
             else:
-                # Check if collection needs to be updated with wavelet hash vector
+                # Check if collection has correct configuration
                 try:
                     collection_info = qdrant_client.get_collection(collection_name=collection_name)
-                    if "whash_vector" not in collection_info.config.params.vectors:
-                        logger.info(f"Recreating collection {collection_name} to add wavelet hash vector")
-                        # We need to recreate the collection with the new vector configuration
-                        # First delete the existing one
-                        qdrant_client.delete_collection(collection_name=collection_name)
+                    
+                    # Check if we have a simple vector configuration with size 256
+                    if hasattr(collection_info.config.params, 'vectors'):
+                        logger.info("Collection has named vectors configuration - needs update")
+                        # Named vectors not supported, use scripts/manage_qdrant.py to update
+                        logger.warning("Please use scripts/manage_qdrant.py update-whash to update the collection")
+                    elif hasattr(collection_info.config.params, 'size') and collection_info.config.params.size != 256:
+                        logger.info(f"Collection has wrong vector size: {collection_info.config.params.size} - needs update")
+                        logger.warning("Please use scripts/manage_qdrant.py update-whash to update the collection")
                         
-                        # Then create it with both vectors
-                        qdrant_client.create_collection(
-                            collection_name=collection_name,
-                            vectors_config={
-                                # The original vector for tag information
-                                "tag_vector": models.VectorParams(
-                                    size=100,  # Dummy size for the tag dense vector
-                                    distance=models.Distance.COSINE
-                                ),
-                                # The new vector for wavelet hash (256 bits = 256 dimensions)
-                                "whash_vector": models.VectorParams(
-                                    size=256,  # Size for wavelet hash vector (16x16 bits)
-                                    distance=models.Distance.HAMMING  # Hamming distance is better for binary hashes
-                                )
-                            },
-                            sparse_vectors_config={
-                                "camie": models.SparseVectorParams()
-                            }
-                        )
-                        logger.info("Recreated collection with both tag vector and wavelet hash vector")
                 except Exception as e:
                     logger.error(f"Error checking collection structure: {str(e)}")
                     # Continue anyway - might be permissions issue
@@ -295,14 +292,25 @@ def search_by_image(image_data, limit=10, score_threshold=0.85):
         # Calculate wavelet hash for the query image
         hash_vector = calculate_wavelet_hash(image_data)
         
-        # Search in Qdrant using the wavelet hash
-        search_results = qdrant_client.search(
-            collection_name=collection_name,
-            query_vector=("whash_vector", hash_vector),
-            limit=limit,
-            score_threshold=score_threshold,
-            with_payload=True
-        )
+        # Search in Qdrant using the wavelet hash as primary vector
+        try:
+            search_results = qdrant_client.search(
+                collection_name=collection_name,
+                query_vector=hash_vector,  # Now using wavelet hash as primary vector
+                limit=limit,
+                score_threshold=score_threshold,
+                with_payload=True
+            )
+        except Exception as e:
+            # Try again with the newer API method if search method is deprecated
+            logger.warning(f"Search method error: {str(e)}, trying with query_points")
+            search_results = qdrant_client.query_points(
+                collection_name=collection_name,
+                query_vector=hash_vector,
+                limit=limit,
+                score_threshold=score_threshold,
+                with_payload=True
+            ).points
         
         # Process and return results
         results = []
@@ -334,77 +342,70 @@ def format_output(dense_array, output_format, original_data, image_data=None):
         # Convert dense to sparse format
         non_zero = [(idx, val) for idx, val in enumerate(dense_array) if val > 0]
         
-        # Create a dummy dense vector required by Qdrant
-        dummy_vector = [0.0] * 100
+        # Create a payload that includes sparse vector info
+        payload = dict(original_data)  # Clone the original data
         
         if non_zero:
             indices, values = zip(*non_zero)
-            return {
-                "vector": dummy_vector,  # Required dummy dense vector
-                "sparse_vectors": {
-                    "camie": {  # Match the name defined in the collection
-                        "indices": list(indices),
-                        "values": list(values)
-                    }
-                },
-                "payload": original_data  # Include complete original data
+            # Store sparse vector info in the payload
+            payload["_sparse_vectors"] = {
+                "camie": {  # Match the name defined in the collection
+                    "indices": list(indices),
+                    "values": list(values)
+                }
             }
         else:
             # Handle empty vector case
-            return {
-                "vector": dummy_vector,  # Required dummy dense vector
-                "sparse_vectors": {
-                    "camie": {  # Match the name defined in the collection
-                        "indices": [],
-                        "values": []
-                    }
-                },
-                "payload": original_data
+            payload["_sparse_vectors"] = {
+                "camie": {  # Match the name defined in the collection
+                    "indices": [],
+                    "values": []
+                }
             }
+        
+        # Create a dummy dense vector since wavelet hash will be the primary vector
+        dummy_vector = [0.0] * 100
+            
+        return {
+            "vector": dummy_vector,  # This will be replaced by the wavelet hash
+            "payload": payload
+        }
     
     elif output_format == VectorFormat.QDRANT_COMBINED:
-        # This format includes both the tag vector and the wavelet hash vector
+        # New format: whash as primary vector, sparse data in payload
         
-        # First, process the tag vector part (same as QDRANT_SPARSE)
+        # Process the tag vector part for sparse representation
         non_zero = [(idx, val) for idx, val in enumerate(dense_array) if val > 0]
-        
-        # Create a dummy dense vector required by Qdrant
-        dummy_vector = [0.0] * 100
         
         # Get the whash vector if we have image data
         whash_vector = calculate_wavelet_hash(image_data) if image_data else [0.0] * 256
         
-        # Prepare the response
+        # Create payload with original data and sparse vector info
+        payload = dict(original_data)  # Clone the original data
+        
         if non_zero:
             indices, values = zip(*non_zero)
-            return {
-                "vectors": {
-                    "tag_vector": dummy_vector,  # Required dummy dense vector
-                    "whash_vector": whash_vector  # Wavelet hash vector
-                },
-                "sparse_vectors": {
-                    "camie": {  # Match the name defined in the collection
-                        "indices": list(indices),
-                        "values": list(values)
-                    }
-                },
-                "payload": original_data  # Include complete original data
+            # Store sparse vector info in the payload
+            payload["_sparse_vectors"] = {
+                "camie": {  # Match the name defined in the collection
+                    "indices": list(indices),
+                    "values": list(values)
+                }
             }
         else:
             # Handle empty vector case
-            return {
-                "vectors": {
-                    "tag_vector": dummy_vector,  # Required dummy dense vector
-                    "whash_vector": whash_vector  # Wavelet hash vector
-                },
-                "sparse_vectors": {
-                    "camie": {  # Match the name defined in the collection
-                        "indices": [],
-                        "values": []
-                    }
-                },
-                "payload": original_data
+            payload["_sparse_vectors"] = {
+                "camie": {  # Match the name defined in the collection
+                    "indices": [],
+                    "values": []
+                }
             }
+        
+        # Return the data in the new format
+        return {
+            "vector": whash_vector,  # wavelet hash as primary vector
+            "payload": payload  # payload with original data and sparse vector info
+        }
 
 def generate_qdrant_sparse_vector(input_data, exclude_categories=None, image_data=None, include_whash=True):
     """Generate a Qdrant sparse vector from input data.
