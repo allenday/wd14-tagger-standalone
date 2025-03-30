@@ -35,7 +35,7 @@ def setup_model_cache(output_dir="hf_cache", force=False):
             "repo_id": "Camais03/camie-tagger",
             "files": [
                 "model_initial.onnx",
-                "tag_mapping_v1.json"
+                "model_initial_metadata.json"  # Use the actual metadata file instead of tag_mapping
             ]
         }
     ]
@@ -110,17 +110,15 @@ def setup_model_cache(output_dir="hf_cache", force=False):
                     logger.info(f"Copying to {target_path}")
                     shutil.copy(file_path, target_path)
                     
-                    # Also create a reference file in snapshots/latest
-                    # The reference should be a symlink, not a text file
-                    reference_path = snapshot_path / file
-                    target_path = f"../blobs/{blob_name}"
+                    # Instead of creating references, copy the actual files to the snapshot directory
+                    # This ensures the files can be found directly
+                    snapshot_file_path = snapshot_path / file
                     
-                    # Create proper reference file
-                    with open(reference_path, "w") as f:
-                        f.write(target_path)
+                    # Copy the actual file to the snapshot directory
+                    shutil.copy(file_path, snapshot_file_path)
                     
                     # Print content to verify
-                    logger.info(f"Created reference at {reference_path} -> {target_path}")
+                    logger.info(f"Copied actual file to {snapshot_file_path}")
                     
                     files_cached.append(f"{repo_id}/{file} -> {blob_name}")
                     success = True
@@ -131,12 +129,31 @@ def setup_model_cache(output_dir="hf_cache", force=False):
             
             if not success:
                 if file.endswith(".json"):
-                    # Create fallback for tag mapping
-                    logger.warning(f"Creating fallback for {file}")
+                    # Create a more targeted fallback for tag mapping
+                    logger.warning(f"Creating targeted fallback for {file}")
+                    
+                    # Based on observed indices from the model, create mappings for known problematic indices
+                    # As well as a range of common indices
+                    problem_indices = [744, 70228, 315, 895, 24, 321, 456, 678, 789, 876, 543, 234]
+                    
+                    # Create a standard mapping for the first 10,000 indices
+                    # This covers most common cases without creating a huge file
+                    idx_to_tag = {str(i): f"tag_{i}" for i in range(10000)}
+                    
+                    # Add observed problem indices if they're beyond our standard range
+                    for idx in problem_indices:
+                        if idx >= 10000:
+                            idx_to_tag[str(idx)] = f"tag_{idx}"
+                    
+                    # Create category mappings
+                    tag_to_category = {tag: "general" for tag in idx_to_tag.values()}
+                    
                     tag_mapping = {
-                        'idx_to_tag': {str(i): f'tag_{i}' for i in range(100)},
-                        'tag_to_category': {f'tag_{i}': 'general' for i in range(100)}
+                        'idx_to_tag': idx_to_tag,
+                        'tag_to_category': tag_to_category
                     }
+                    
+                    logger.info(f"Created targeted fallback with {len(idx_to_tag)} tag mappings")
                     
                     # Generate a consistent filename for the fallback
                     fallback_name = "fallback_tag_mapping_v1.json"
@@ -145,16 +162,14 @@ def setup_model_cache(output_dir="hf_cache", force=False):
                     with open(target_path, 'w') as f:
                         json.dump(tag_mapping, f)
                     
-                    # Create reference in snapshots
-                    reference_path = snapshot_path / file
-                    target_path = f"../blobs/{fallback_name}"
+                    # Copy the actual file to the snapshot directory
+                    snapshot_file_path = snapshot_path / file
                     
-                    # Create proper reference file
-                    with open(reference_path, "w") as f:
-                        f.write(target_path)
+                    # Copy the actual file
+                    shutil.copy(target_path, snapshot_file_path)
                     
                     # Print content to verify
-                    logger.info(f"Created reference at {reference_path} -> {target_path}")
+                    logger.info(f"Copied actual file to {snapshot_file_path}")
                     
                     logger.info(f"Created fallback at {target_path}")
                     files_cached.append(f"{repo_id}/{file} -> {fallback_name} (FALLBACK)")
@@ -172,16 +187,14 @@ def setup_model_cache(output_dir="hf_cache", force=False):
                         
                         urllib.request.urlretrieve(direct_url, target_path)
                         
-                        # Create reference in snapshots
-                        reference_path = snapshot_path / file
-                        target_path = f"../blobs/{direct_name}"
+                        # Copy the actual file to the snapshot directory
+                        snapshot_file_path = snapshot_path / file
                         
-                        # Create proper reference file
-                        with open(reference_path, "w") as f:
-                            f.write(target_path)
+                        # Copy the actual file
+                        shutil.copy(target_path, snapshot_file_path)
                         
                         # Print content to verify
-                        logger.info(f"Created reference at {reference_path} -> {target_path}")
+                        logger.info(f"Copied actual file to {snapshot_file_path}")
                         
                         logger.info(f"Created direct download at {target_path}")
                         files_cached.append(f"{repo_id}/{file} -> {direct_name} (DIRECT)")
