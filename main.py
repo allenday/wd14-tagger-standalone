@@ -158,10 +158,27 @@ def process_pubsub_message(cloud_event):
         image_data = base64.b64decode(image_base64)
         
         # Create storage path from filepath
-        # This can be customized based on your needs
-        filename = Path(filepath).name
+        # This preserves the directory structure from the filepath
+        path = Path(filepath)
+        filename = path.name
+        parent_path = path.parent
+        
+        # Get bucket name from environment
         bucket_name = os.environ.get("GCS_BUCKET_NAME", "tagger-images")
-        destination_blob_name = f"{Path(filepath).stem}/{filename}"
+        
+        # If parent path is just / or empty, use the stem as the directory
+        # Otherwise use the full parent path
+        if str(parent_path) == '/' or str(parent_path) == '.':
+            destination_blob_name = f"{path.stem}/{filename}"
+        else:
+            # Remove leading / if present to avoid empty segment at the beginning
+            parent_str = str(parent_path)
+            if parent_str.startswith('/'):
+                parent_str = parent_str[1:]
+                
+            destination_blob_name = f"{parent_str}/{filename}"
+            
+        logger.info(f"Storage path: {destination_blob_name}")
         
         # Save image to GCS
         gcs_uri = save_to_gcs(bucket_name, destination_blob_name, image_data)

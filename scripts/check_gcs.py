@@ -43,10 +43,19 @@ def check_gcs(filepath, bucket_name, custom_filepath=None):
     # Use custom filepath if provided, otherwise use the original filepath
     path_to_check = Path(custom_filepath if custom_filepath else filepath)
     filename = path_to_check.name
-    stem = path_to_check.stem
+    parent_path = path_to_check.parent
     
     # Expected GCS path based on the Cloud Function logic
-    expected_blob_name = f"{stem}/{filename}"
+    if str(parent_path) == '/' or str(parent_path) == '.':
+        # If no parent directory, use stem as directory
+        expected_blob_name = f"{path_to_check.stem}/{filename}"
+    else:
+        # Use the full parent path
+        parent_str = str(parent_path)
+        if parent_str.startswith('/'):
+            parent_str = parent_str[1:]
+        expected_blob_name = f"{parent_str}/{filename}"
+    
     print(f"Checking for GCS object: gs://{bucket_name}/{expected_blob_name}")
     
     try:
