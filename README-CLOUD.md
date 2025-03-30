@@ -111,19 +111,24 @@ gcloud auth configure-docker us-central1-docker.pkg.dev
 docker push us-central1-docker.pkg.dev/YOUR_PROJECT_ID/image-tagger/image-tagger:latest
 ```
 
-7. Deploy to Cloud Run:
+7. Configure the Qdrant collection for wavelet hash (required):
 
 ```bash
-gcloud run deploy YOUR_SERVICE_NAME \
-  --image=us-central1-docker.pkg.dev/YOUR_PROJECT_ID/image-tagger/image-tagger:latest \
-  --region=YOUR_REGION \
-  --project=YOUR_PROJECT_ID \
-  --memory=4Gi \
-  --cpu=2 \
-  --timeout=540s \
-  --service-account=YOUR_SERVICE_ACCOUNT \
-  --set-env-vars=GCS_BUCKET_NAME=YOUR_BUCKET_NAME,QDRANT_URL=YOUR_QDRANT_URL,QDRANT_PORT=6333,QDRANT_API_KEY=YOUR_QDRANT_API_KEY,QDRANT_COLLECTION=image-vectors \
-  --no-allow-unauthenticated
+# Create or update Qdrant collection with wavelet hash as primary vector
+source .env && python scripts/manage_qdrant.py create --overwrite
+```
+
+8. Deploy to Cloud Run:
+
+```bash
+# Using environment variables from .env file (single-line command)
+source /Users/allenday/src/wd14-tagger-standalone/.env && gcloud run deploy $SERVICE_NAME --image=us-central1-docker.pkg.dev/$GCP_PROJECT_ID/image-tagger/image-tagger:latest --region=$GCP_REGION --project=$GCP_PROJECT_ID --memory=$MEMORY --cpu=$CPU --timeout=$TIMEOUT --service-account=$SERVICE_ACCOUNT --set-env-vars=GCS_BUCKET_NAME=$GCS_BUCKET_NAME,QDRANT_URL=$QDRANT_URL,QDRANT_PORT=$QDRANT_PORT,QDRANT_API_KEY=$QDRANT_API_KEY,QDRANT_COLLECTION=$QDRANT_COLLECTION --no-allow-unauthenticated
+```
+
+Or with explicit values:
+
+```bash
+gcloud run deploy YOUR_SERVICE_NAME --image=us-central1-docker.pkg.dev/YOUR_PROJECT_ID/image-tagger/image-tagger:latest --region=YOUR_REGION --project=YOUR_PROJECT_ID --memory=4Gi --cpu=2 --timeout=540s --service-account=YOUR_SERVICE_ACCOUNT --set-env-vars=GCS_BUCKET_NAME=YOUR_BUCKET_NAME,QDRANT_URL=YOUR_QDRANT_URL,QDRANT_PORT=6333,QDRANT_API_KEY=YOUR_QDRANT_API_KEY,QDRANT_COLLECTION=image-vectors --no-allow-unauthenticated
 ```
 
 8. Create a Pub/Sub subscription that pushes to the Cloud Run service:
@@ -138,59 +143,129 @@ gcloud pubsub subscriptions create YOUR_SUBSCRIPTION_NAME \
 
 ### Testing the Deployment
 
-1. Generate a test message:
+You can publish an image directly to Pub/Sub using the included script:
 
 ```bash
-# Create a test message with an image
-python3 test_cloud_function.py /path/to/your/image.jpg -o test_message.json
-
-# View the message content
-cat test_message.json
+# Publish directly with the script
+python3 publish_to_pubsub.py /Users/allenday/Pictures/vlcsnap-2025-03-28-20h24m00s164.jpg \
+  --project=YOUR_PROJECT_ID \
+  --topic=image-upload-notifications \
+  --max-size=256
 ```
 
-2. Publish the test message to your Pub/Sub topic:
+You can also create a test message file without publishing (useful for debugging):
 
 ```bash
+# Create a test message with an image (without publishing)
+python3 publish_to_pubsub.py /Users/allenday/Pictures/vlcsnap-2025-03-28-20h24m00s164.jpg \
+  --save-only test_message.json
+```
+
+And then publish using gcloud:
+
+```bash
+# Publish the saved message file using gcloud
 gcloud pubsub topics publish image-upload-notifications \
   --message="$(cat test_message.json)" \
   --project=YOUR_PROJECT_ID
 ```
 
-3. Check the logs to verify the function processed the message:
+3. Verify successful processing by checking all components:
+
+### Verification Scripts
+
+We've created helper scripts to verify all aspects of processing. First, make sure you have a `.env` file with all the necessary credentials (see `.env.example`).
+
+#### Checking Everything at Once
+
+To check all aspects of processing with a single command:
 
 ```bash
+# Load environment variables first
+source .env
+
+# Run the comprehensive check script
+python scripts/check_all.py $EXAMPLE_IMAGE_PATH
+
+# To look further back in the logs (e.g., 24 hours)
+python scripts/check_all.py $EXAMPLE_IMAGE_PATH --hours 24
+```
+
+This script runs all verification scripts in sequence, checking:
+- Cloud Run logs for processing status
+- Google Cloud Storage for the stored image
+- Qdrant for the vector representation and tags
+
+#### Checking Individual Components
+
+You can also check each component separately:
+
+##### 1. Cloud Run Logs
+
+```bash
+# Make sure environment variables are loaded
+source .env
+
+# Check logs for evidence of processing
+python scripts/check_logs.py $EXAMPLE_IMAGE_PATH
+
+# Look further back in time
+python scripts/check_logs.py $EXAMPLE_IMAGE_PATH --hours 24
+```
+
+##### 2. Google Cloud Storage
+
+```bash
+source .env
+python scripts/check_gcs.py $EXAMPLE_IMAGE_PATH
+```
+
+##### 3. Qdrant Vector Database
+
+```bash
+source .env
+python scripts/check_qdrant.py $EXAMPLE_IMAGE_PATH
+```
+
+### Manual Verification
+
+If you prefer to check manually:
+
+#### Using gcloud for Logs
+
+```bash
+# General format
 gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=YOUR_SERVICE_NAME" \
   --project=YOUR_PROJECT_ID \
   --limit=10 \
   --order=desc
+
+# For the actual deployed service
+gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=image-tagger-run" \
+  --project=n8n-dev-453405 \
+  --limit=20
 ```
 
-4. Verify the image was uploaded to your Cloud Storage bucket:
+Look for successful log entries like:
+```
+INFO:main:Successfully processed image and stored vector for /path/to/image.jpg
+```
+
+#### Using gsutil for Google Cloud Storage
 
 ```bash
+# General format
 gsutil ls -l gs://YOUR_BUCKET_NAME
+
+# For the actual deployed service
+gsutil ls -l gs://camie-tagger
 ```
 
-5. Check Qdrant to see if the vector was stored:
-
-```bash
-# If you have qdrant-client installed, you can use this Python code
-import os
-from qdrant_client import QdrantClient
-
-client = QdrantClient(
-    url=os.environ["QDRANT_URL"],
-    port=int(os.environ["QDRANT_PORT"]),
-    api_key=os.environ["QDRANT_API_KEY"]
-)
-
-# Search for vectors
-client.search(
-    collection_name=os.environ["QDRANT_COLLECTION"],
-    query_vector={"name": "camie", "sparse": {"indices": [0, 1, 2], "values": [0.5, 0.7, 0.3]}},
-    limit=5
-)
+Images are stored with a path structure based on the original filename:
 ```
+gs://camie-tagger/vlcsnap-2025-03-28-20h24m00s164/vlcsnap-2025-03-28-20h24m00s164.jpg
+```
+
 
 ### Troubleshooting Common Issues
 
@@ -211,15 +286,29 @@ client.search(
 
 ## Pub/Sub Message Format
 
-The Cloud Function expects messages in the following JSON format:
+The Cloud Function requires a specific format for Pub/Sub messages. The publish_to_pubsub.py script handles this properly, but if you need to create test messages manually, here's the structure:
 
+1. Inner message (the actual data):
 ```json
 {
-  "filepath": "/path/to/your/image.jpg",
+  "filepath": "/Users/allenday/Pictures/vlcsnap-2025-03-28-20h24m00s164.jpg",
   "timestamp": "2023-01-01T12:00:00Z",
   "image": "base64-encoded-image-data"
 }
 ```
+
+2. This inner message must be converted to JSON and base64 encoded
+
+3. Then wrapped in a Cloud Events compatible structure:
+```json
+{
+  "message": {
+    "data": "base64-encoded-json-from-step-2"
+  }
+}
+```
+
+The double-encoding and wrapping is handled automatically by the publish_to_pubsub.py script.
 
 ## Development
 
