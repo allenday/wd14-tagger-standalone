@@ -1,7 +1,15 @@
 
 forked from [https://github.com/picobyte/stable-diffusion-webui-wd14-tagger](https://github.com/picobyte/stable-diffusion-webui-wd14-tagger)
 
-## install
+## Features
+
+- Local image tagging with various machine learning models
+- Generate tags for single images or entire directories
+- Run as standalone CLI tool or as Google Cloud Function
+- Support for Camie Tagger and various WD14/Safetensors models
+- Optional GPU acceleration with CUDA
+
+## Installation
 
 ```
 python -m venv venv
@@ -9,7 +17,9 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## usage
+## Usage
+
+### Local CLI Mode
 
 ```
 usage: run.py [-h] (--dir DIR | --file FILE) [--threshold THRESHOLD] [--ext EXT] [--overwrite] [--cpu] [--rawtag] [--recursive] [--exclude-tag t1,t2,t3] [--model MODELNAME]
@@ -87,6 +97,27 @@ pip install onnxruntime-gpu --extra-index-url https://aiinfra.pkgs.visualstudio.
 
 https://onnxruntime.ai/docs/install/</br>
 https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html#requirements
+
+## Cloud Function Mode
+
+This project can also be deployed as a Google Cloud Function that receives images via Pub/Sub, analyzes them, and stores both the images and their vector representations for search.
+
+For Cloud Function deployment instructions and usage, see the [Cloud Function README](README-CLOUD.md).
+
+Quick examples for using the Cloud Function:
+
+```bash
+# Load environment variables
+source .env
+
+# Publish an image to the Cloud Function
+python publish_to_pubsub.py $EXAMPLE_IMAGE_PATH \
+  --project=$GCP_PROJECT_ID \
+  --topic=$PUBSUB_TOPIC
+
+# Verify the image was processed correctly
+python scripts/check_all.py $EXAMPLE_IMAGE_PATH
+```
 
 ## Copyright
 
