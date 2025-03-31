@@ -174,9 +174,8 @@ def process_pubsub_message(cloud_event):
                 logger.error(f"Error parsing nested message: {str(e)}")
                 return
         
-        # Extract fields from the message
+        # Extract required fields from the message
         filepath = message_data.get("filepath")
-        timestamp = message_data.get("timestamp")
         image_base64 = message_data.get("image")
         
         logger.info(f"Processing image from: {filepath}")
@@ -187,6 +186,9 @@ def process_pubsub_message(cloud_event):
         
         # Decode the image
         image_data = base64.b64decode(image_base64)
+        
+        # Save all fields from the message for later use
+        message_fields = {k: v for k, v in message_data.items() if k != "image"}
         
         # Handle different formats of filepath
         if filepath.startswith("https://storage.googleapis.com/") or filepath.startswith("https://storage.cloud.google.com/"):
@@ -259,14 +261,16 @@ def process_pubsub_message(cloud_event):
                 https_uri = f"https://storage.googleapis.com/{bucket_name}/{object_path}"
                 logger.info(f"Converted GCS URI to HTTPS URL for storage: {https_uri}")
         
-        # Create result object with both the original filepath and HTTPS URL
-        result = {
+        # Create result object with all fields from the message plus additional ones
+        result = message_fields.copy()
+        
+        # Add or update standard fields
+        result.update({
             "file": filepath,      # Keep the original filepath
             "gcs_uri": gcs_uri,    # Keep the original GCS URI (gs:// format)
             "https_uri": https_uri, # Add the HTTPS URL for direct browsing
-            "timestamp": timestamp,
             "tags": tags
-        }
+        })
         
         # Generate vector representation including wavelet hash
         vector_data = generate_qdrant_sparse_vector(result, image_data=image_data, include_whash=True)
@@ -304,13 +308,12 @@ def process_pubsub_message(cloud_event):
             if "vectors" in vector_data and "tag_vector" in vector_data["vectors"]:
                 tag_info = vector_data["vectors"]["tag_vector"]
             
-            # Create a payload with all required fields
+            # Create a payload with all fields from the result
             payload = vector_data["payload"].copy()
-            payload["file"] = result["file"]
-            payload["gcs_uri"] = result["gcs_uri"]
-            payload["https_uri"] = result["https_uri"]
-            payload["timestamp"] = result["timestamp"]
-            payload["tags"] = result["tags"]
+            
+            # Add all fields from the result
+            for key, value in result.items():
+                payload[key] = value
             
             # If we have tag_info, store it in a special field for possible future use
             if tag_info:
@@ -342,13 +345,7 @@ def process_pubsub_message(cloud_event):
                     points=[{
                         "id": point_id,
                         "vector": [0.0] * 256,  # Use dummy vector with wavelet hash size
-                        "payload": {
-                            "file": result["file"],
-                            "gcs_uri": result["gcs_uri"],
-                            "https_uri": result["https_uri"],
-                            "timestamp": result["timestamp"],
-                            "tags": result["tags"]
-                        }
+                        "payload": result
                     }]
                 )
                 logger.info("Simplest vector insertion successful")

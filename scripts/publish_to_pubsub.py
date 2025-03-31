@@ -28,7 +28,7 @@ def resize_image(image_path, max_size=512, verbose=False):
         print(f"Resized image to {img.width}x{img.height} ({len(image_data)/1024:.1f} KB)")
     return image_data
 
-def publish_message(project_id, topic_id, image_path, max_size=512, filepath=None, verbose=False):
+def publish_message(project_id, topic_id, image_path, max_size=512, filepath=None, time_offset=None, verbose=False):
     """Publish a message to Pub/Sub with the image data in Cloud Function format.
     
     Args:
@@ -38,6 +38,7 @@ def publish_message(project_id, topic_id, image_path, max_size=512, filepath=Non
         max_size: Maximum dimension for image resizing
         filepath: Optional custom filepath to include in the message payload. 
                  If not provided, the actual image_path will be used.
+        time_offset: Optional time offset in seconds to include in the message payload.
         verbose: Whether to print detailed progress messages
     """
     # Check if file exists
@@ -68,6 +69,7 @@ def publish_message(project_id, topic_id, image_path, max_size=512, filepath=Non
     inner_message = {
         "filepath": path_str,
         "timestamp": "2023-01-01T12:00:00Z",
+        "time_offset": time_offset,
         "image": base64.b64encode(image_data).decode("utf-8")
     }
     
@@ -131,7 +133,7 @@ def publish_message(project_id, topic_id, image_path, max_size=512, filepath=Non
             print(traceback.format_exc())
         return False
 
-def create_test_message(image_path, max_size=512, output_file=None, filepath=None, verbose=False):
+def create_test_message(image_path, max_size=512, output_file=None, filepath=None, time_offset=None, verbose=False):
     """Create a test message file without publishing.
     
     Args:
@@ -140,6 +142,7 @@ def create_test_message(image_path, max_size=512, output_file=None, filepath=Non
         output_file: Optional file to save the test message to
         filepath: Optional custom filepath to include in the message payload.
                  If not provided, the actual image_path will be used.
+        time_offset: Optional time offset in seconds to include in the message payload.
         verbose: Whether to print detailed progress messages
     """
     # Check if file exists
@@ -169,6 +172,7 @@ def create_test_message(image_path, max_size=512, output_file=None, filepath=Non
     inner_message = {
         "filepath": path_str,
         "timestamp": "2023-01-01T12:00:00Z",
+        "time_offset": time_offset,
         "image": base64.b64encode(image_data).decode("utf-8")
     }
     
@@ -291,6 +295,7 @@ def main():
     parser.add_argument("--topic", help="Pub/Sub topic ID")
     parser.add_argument("--filepath", help="Custom filepath to include in the message payload (different from the actual file path)")
     parser.add_argument("--custom-dir", help="Custom directory to use as the base path in the payload (for directory processing)")
+    parser.add_argument("--time-offset", type=float, help="Time offset in seconds to include in the message payload")
     parser.add_argument("--max-size", type=int, default=256, 
                         help="Maximum dimension for resizing (default: 256)")
     parser.add_argument("--check-auth", action="store_true", 
@@ -339,7 +344,7 @@ def main():
         if len(image_files) > 1:
             print("Error: --save-only only works with a single image file")
             sys.exit(1)
-        create_test_message(image_files[0], args.max_size, args.save_only, args.filepath, args.verbose)
+        create_test_message(image_files[0], args.max_size, args.save_only, args.filepath, args.time_offset, args.verbose)
         return
     
     # Validate required args for publishing
@@ -387,6 +392,7 @@ def main():
             img_file, 
             args.max_size,
             custom_path,
+            args.time_offset,
             args.verbose
         )
         
