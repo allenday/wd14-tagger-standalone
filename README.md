@@ -119,6 +119,75 @@ python publish_to_pubsub.py $EXAMPLE_IMAGE_PATH \
 python scripts/check_all.py $EXAMPLE_IMAGE_PATH
 ```
 
+## Qdrant Management
+
+This project includes tools for managing Qdrant vector database collections and performing batch operations on documents.
+
+### Collection Management
+
+```bash
+# Create a new collection
+python scripts/manage_qdrant.py create
+
+# List all collections
+python scripts/manage_qdrant.py list
+
+# Get detailed information about a collection
+python scripts/manage_qdrant.py info
+
+# Delete a collection
+python scripts/manage_qdrant.py delete
+```
+
+### Batch Operations
+
+The `batch` command allows you to perform operations on multiple documents at once:
+
+#### Adding Fields
+
+```bash
+# Add fields to documents using IDs from a file
+python scripts/manage_qdrant.py batch --id-file document-ids.txt \
+  --doc '{"new-field1":"new-value1","new-field2":"new-value2"}' --add
+
+# Add a nested object under a specific path
+python scripts/manage_qdrant.py batch --id-file document-ids.txt \
+  --doc '{"some-key":"some-value"}' --add --selector "new-subdoc"
+
+# Add fields to documents matching a filter
+python scripts/manage_qdrant.py batch --filter '{"must":[{"key":"filepath","match":{"text":"MOVIE_TITLE"}}]}' \
+  --doc '{"scene_id":"scene123"}' --add
+```
+
+#### Deleting Fields
+
+```bash
+# Delete a specific field from documents
+python scripts/manage_qdrant.py batch --id-file document-ids.txt \
+  --delete --selector "new-field1"
+
+# Delete a nested field
+python scripts/manage_qdrant.py batch --ids "id1,id2,id3" \
+  --delete --selector "metadata.author"
+```
+
+#### Replacing Fields
+
+```bash
+# Replace a field with new content
+python scripts/manage_qdrant.py batch --id-file document-ids.txt \
+  --doc '{"new-value":"updated"}' --replace --selector "some-field"
+
+# Replace a nested object
+python scripts/manage_qdrant.py batch --filter '{"must":[{"key":"tags.person","range":{"gte":0.9}}]}' \
+  --doc '{"width":1920,"height":1080}' --replace --selector "metadata.dimensions"
+```
+
+The batch operation supports three ways to select documents:
+1. `--id-file`: Specify a file containing document IDs, one per line
+2. `--ids`: Provide a comma-separated list of document IDs
+3. `--filter`: Use a Qdrant filter to select documents matching specific criteria
+
 ## Copyright
 
 Public domain, except borrowed parts (e.g. `dbimutils.py`)
