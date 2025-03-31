@@ -251,20 +251,57 @@ def find_image_files(directory_path):
     
     return image_files
 
-def process_path(path_str, base_dir=None, custom_dir=None):
+def extract_time_offset(filename, pattern):
+    """Extract time offset from a filename based on a pattern.
+    
+    Args:
+        filename: The filename to extract from
+        pattern: Pattern string (e.g., 'frame_%05d.jpg')
+    
+    Returns:
+        Time offset as float if detected, None otherwise
+    """
+    import re
+    
+    if not pattern:
+        return None
+        
+    # Convert printf-style format to regex pattern
+    # e.g., 'frame_%05d.jpg' becomes 'frame_(\d{5})\.jpg'
+    regex_pattern = pattern.replace('.', '\.')  # Escape dots
+    
+    # Replace %d, %03d, %05d, etc. with appropriate regex groups
+    regex_pattern = re.sub(r'%(\d*)d', lambda m: f'(\\d{{{m.group(1) or 1},}})', regex_pattern)
+    
+    # Try to match the pattern against the filename
+    match = re.match(regex_pattern, filename)
+    if match and match.group(1):
+        return float(match.group(1))
+    
+    return None
+
+def process_path(path_str, base_dir=None, custom_dir=None, time_offset_pattern=None):
     """Process a file path to create the appropriate filepath for publishing.
     
     Args:
         path_str: The original file path
         base_dir: The base directory to strip from the path (for recursive processing)
         custom_dir: Custom directory to use instead of the original path
+        time_offset_pattern: Optional pattern for extracting time offset number
         
     Returns:
-        Processed filepath
+        Tuple of (processed_filepath, time_offset)
+        time_offset will be None if no number is detected or pattern is not provided
     """
     # Convert to Path objects
     path = Path(path_str)
+    time_offset = None
     
+    # Try to extract time offset from filename if pattern is provided
+    if time_offset_pattern:
+        time_offset = extract_time_offset(path.name, time_offset_pattern)
+    
+    # Process filepath
     if base_dir and custom_dir:
         # If we have both a base_dir and custom_dir, replace the base with custom
         base = Path(base_dir)
@@ -273,16 +310,16 @@ def process_path(path_str, base_dir=None, custom_dir=None):
             rel_path = path.relative_to(base)
             # Join with custom directory
             new_path = Path(custom_dir) / rel_path
-            return str(new_path)
+            return str(new_path), time_offset
         except ValueError:
             # If path is not relative to base_dir, just use the filename
-            return str(Path(custom_dir) / path.name)
+            return str(Path(custom_dir) / path.name), time_offset
     elif custom_dir:
         # If we only have custom_dir, just use the filename
-        return str(Path(custom_dir) / path.name)
+        return str(Path(custom_dir) / path.name), time_offset
     else:
         # Otherwise return the original path
-        return str(path)
+        return str(path), time_offset
     
 def main():
     """Main function."""
@@ -296,6 +333,7 @@ def main():
     parser.add_argument("--filepath", help="Custom filepath to include in the message payload (different from the actual file path)")
     parser.add_argument("--custom-dir", help="Custom directory to use as the base path in the payload (for directory processing)")
     parser.add_argument("--time-offset", type=float, help="Time offset in seconds to include in the message payload")
+    parser.add_argument("--time-offset-pattern", help="Pattern to extract time offset from filename (e.g., 'frame_%05d.jpg')")
     parser.add_argument("--max-size", type=int, default=256, 
                         help="Maximum dimension for resizing (default: 256)")
     parser.add_argument("--check-auth", action="store_true", 
@@ -344,7 +382,22 @@ def main():
         if len(image_files) > 1:
             print("Error: --save-only only works with a single image file")
             sys.exit(1)
-        create_test_message(image_files[0], args.max_size, args.save_only, args.filepath, args.time_offset, args.verbose)
+        # Process file path and get time offset if pattern provided
+        if args.filepath:
+            custom_path = args.filepath
+            file_time_offset = args.time_offset
+        else:
+            custom_path, extracted_offset = process_path(
+                image_files[0], 
+                None, 
+                None,
+                args.time_offset_pattern
+            )
+            file_time_offset = args.time_offset
+            if extracted_offset is not None and file_time_offset is None:
+                file_time_offset = extracted_offset
+        
+        create_test_message(image_files[0], args.max_size, args.save_only, custom_path, file_time_offset, args.verbose)
         return
     
     # Validate required args for publishing
@@ -361,9 +414,22 @@ def main():
     if args.dry_run:
         print("\nDRY RUN MODE - No messages will be published")
         for img_file in image_files:
-            custom_path = process_path(img_file, str(path) if path.is_dir() else None, args.custom_dir)
+            custom_path, extracted_offset = process_path(
+                img_file, 
+                str(path) if path.is_dir() else None, 
+                args.custom_dir,
+                args.time_offset_pattern
+            )
+            
+            # Determine which time offset would be used
+            file_time_offset = args.time_offset
+            if extracted_offset is not None and file_time_offset is None:
+                file_time_offset = extracted_offset
+                
             print(f"Would publish: {img_file}")
             print(f"  with path in payload: {custom_path}")
+            if file_time_offset is not None:
+                print(f"  with time offset: {file_time_offset:.2f}s")
         return
     
     # Process each image
@@ -374,16 +440,30 @@ def main():
     progress_bar = tqdm(total=total, desc="Publishing images", unit="image")
     
     for img_file in image_files:
-        # Process the filepath for the message payload
+        # Process the filepath for the message payload and extract time offset if pattern provided
+        file_time_offset = args.time_offset  # Default to command line argument
+        
         if args.filepath:
             # If explicit filepath is provided, use it
             custom_path = args.filepath
         else:
-            # Otherwise, process the path
-            custom_path = process_path(img_file, str(path) if path.is_dir() else None, args.custom_dir)
+            # Otherwise, process the path and possibly extract time offset
+            custom_path, extracted_offset = process_path(
+                img_file, 
+                str(path) if path.is_dir() else None, 
+                args.custom_dir,
+                args.time_offset_pattern
+            )
+            
+            # Use extracted offset if available and no explicit offset provided
+            if extracted_offset is not None and file_time_offset is None:
+                file_time_offset = extracted_offset
         
-        # Update progress bar description
-        progress_bar.set_postfix_str(f"Processing: {Path(img_file).name}")
+        # Update progress bar description with time offset info if available
+        status_msg = f"Processing: {Path(img_file).name}"
+        if file_time_offset is not None:
+            status_msg += f" (t={file_time_offset:.2f}s)"
+        progress_bar.set_postfix_str(status_msg)
         
         # Publish message
         success = publish_message(
@@ -392,7 +472,7 @@ def main():
             img_file, 
             args.max_size,
             custom_path,
-            args.time_offset,
+            file_time_offset,
             args.verbose
         )
         
