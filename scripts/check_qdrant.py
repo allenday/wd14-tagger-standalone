@@ -154,13 +154,12 @@ def check_vector(filepath, custom_env=None, custom_filepath=None):
         print(f"Timestamp: {result[0].payload.get('timestamp')}")
         
         # Print tags
-        tags = result[0].payload.get("tags", {})
+        tags = result[0].payload.get("tags", [])
         if tags:
             print(f"\nFound {len(tags)} tags. Top tags:")
-            # Sort tags by confidence score (descending)
-            sorted_tags = sorted(tags.items(), key=lambda x: x[1], reverse=True)
-            for i, (tag, score) in enumerate(sorted_tags[:10], 1):
-                print(f"{i}. {tag}: {score:.4f}")
+            # Tags are already sorted by score in the array
+            for i, tag_obj in enumerate(tags[:10], 1):
+                print(f"{i}. {tag_obj['name']}: {tag_obj['score']:.4f}")
         else:
             print("\nNo tags found in the vector payload.")
         

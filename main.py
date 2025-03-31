@@ -264,6 +264,13 @@ def process_pubsub_message(cloud_event):
         # Create result object with all fields from the message plus additional ones
         result = message_fields.copy()
         
+        # Process tags into an array format sorted by confidence score
+        if tags:
+            # Convert dictionary to ordered array of objects for better visualization in Qdrant
+            sorted_tags = sorted(tags.items(), key=lambda x: x[1], reverse=True)
+            tags_array = [{"name": tag, "score": score} for tag, score in sorted_tags]
+            tags = tags_array  # Replace original dict with the array format
+        
         # Add or update standard fields
         result.update({
             "file": filepath,      # Keep the original filepath

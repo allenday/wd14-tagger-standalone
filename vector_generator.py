@@ -184,11 +184,21 @@ def create_compact_mapping(ref_data, categories, is_exclude=True):
     return tag_to_compact_idx, len(valid_tags)
 
 def convert_to_dense_array(input_tags, tag_to_compact_idx, array_size):
-    """Convert tags to a dense array."""
+    """Convert tags to a dense array.
+    
+    Args:
+        input_tags: A list of {"name": tag, "score": confidence} objects
+        tag_to_compact_idx: Mapping of tag names to indices
+        array_size: Size of the output array
+    """
     result = [0.0] * array_size
-    for tag, confidence in input_tags.items():
-        if tag in tag_to_compact_idx:
+    
+    for tag_obj in input_tags:
+        tag = tag_obj.get("name")
+        confidence = tag_obj.get("score")
+        if tag and tag in tag_to_compact_idx:
             result[tag_to_compact_idx[tag]] = confidence
+    
     return result
 
 def calculate_wavelet_hash(image_data):
