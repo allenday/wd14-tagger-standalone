@@ -5,6 +5,7 @@ https://huggingface.co/Camais03/camie-tagger/blob/main/onnx_inference.py
 """
 import sys
 import json
+import logging
 
 from typing import cast
 
@@ -15,6 +16,8 @@ from huggingface_hub import hf_hub_download
 from onnxruntime import InferenceSession
 
 from tagger.interrogator.interrogator import AbsInterrogator
+
+logger = logging.getLogger(__name__)
 
 class CamieTaggerInterrogator(AbsInterrogator):
     repo_id: str
@@ -36,7 +39,8 @@ class CamieTaggerInterrogator(AbsInterrogator):
         self.model = None
 
     def download(self) -> tuple[str, str]:
-        print(f"Loading {self.name} model file from {self.repo_id}", file=sys.stderr)
+        if not self.quiet:
+            logger.info(f"Loading {self.name} model file from {self.repo_id}")
 
         model_path = hf_hub_download(
             repo_id=self.repo_id,
@@ -53,7 +57,8 @@ class CamieTaggerInterrogator(AbsInterrogator):
 
         self.model = InferenceSession(model_path,
                                         providers=self.providers)
-        print(f'Loaded {self.name} model from {model_path}', file=sys.stderr)
+        if not self.quiet:
+            logger.info(f'Loaded {self.name} model from {model_path}')
 
         with open(tags_path, 'r', encoding='utf-8') as filen:
             self.metadata = json.load(filen)
