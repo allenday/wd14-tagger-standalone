@@ -1,5 +1,6 @@
 import re
 import sys
+import logging
 
 import pandas as pd
 
@@ -8,6 +9,7 @@ from PIL import Image
 
 from onnxruntime import InferenceSession
 
+logger = logging.getLogger(__name__)
 tag_escape_pattern = re.compile(r'([\\()])')
 
 class AbsInterrogator:
@@ -67,6 +69,10 @@ class AbsInterrogator:
     def __init__(self, name: str) -> None:
         self.name = name
         self.providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+        self.quiet = False
+
+    def set_quiet(self, quiet: bool) -> None:
+        self.quiet = quiet
 
     def load(self):
         raise NotImplementedError()
@@ -77,7 +83,8 @@ class AbsInterrogator:
         if hasattr(self, 'model') and self.model is not None:
             del self.model
             unloaded = True
-            print(f'Unloaded {self.name}', file=sys.stderr)
+            if not self.quiet:
+                logger.info(f'Unloaded {self.name}')
 
         if hasattr(self, 'tags'):
             del self.tags
