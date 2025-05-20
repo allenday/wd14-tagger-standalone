@@ -7,6 +7,7 @@ from typing import Generator, Iterable
 from tagger.interrogator.interrogator import AbsInterrogator
 from PIL import Image
 from pathlib import Path
+from typing import Dict
 import argparse
 
 from tagger.interrogators import interrogators
@@ -135,6 +136,14 @@ def generate_output_string(image_path: str, tags: Dict):
     else:
         return ', '.join(tags.keys())
 
+def generate_output_string(image_path: str, tags: Dict):
+    if args.json:
+        return json.dumps({"file":str(image_path),"tags":tags})
+    else:
+        return ', '.join(tags.keys())
+
+
+
 if args.dir:
     root_path = Path(args.dir)
     # First collect all files to process for progress bar and logging
@@ -170,4 +179,3 @@ if args.file:
     except Exception as e:
         logger.error(f"Failed to process {args.file}: {str(e)}")
         sys.exit(1)
-
