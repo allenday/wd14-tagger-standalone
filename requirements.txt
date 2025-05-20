@@ -1,6 +1,5 @@
 numpy==1.24.3
 pandas==2.2.3
-torchvision==0.21.0
 Pillow==11.1.0
 huggingface-hub==0.28.1
 deepdanbooru==1.0.3
