@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wd14-tagger-standalone"
-version = "0.1.1"
+version = "0.1.2"
 authors = [
   { name="Your Name", email="you@example.com" }, # TODO: Update author details
 ]
@@ -18,7 +18,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "numpy==2.2.2",
+    "numpy>=1.23.0,<2.0",
     "pandas==2.2.3",
     "torchvision==0.21.0",
     "Pillow==11.1.0",
