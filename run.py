@@ -1,12 +1,27 @@
+#!/usr/bin/env python
 import sys
-
+import json
+import logging
+import warnings
+from tqdm import tqdm
 from typing import Generator, Iterable
 from tagger.interrogator.interrogator import AbsInterrogator
 from PIL import Image
 from pathlib import Path
+from typing import Dict
 import argparse
 
 from tagger.interrogators import interrogators
+
+# Configure logging
+logging.basicConfig(
+    format='%(levelname)s: %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# Filter CUDA provider warning
+warnings.filterwarnings('ignore', message='Specified provider .* is not in available provider names')
 
 parser = argparse.ArgumentParser()
 
@@ -50,6 +65,16 @@ parser.add_argument(
     default='wd14-convnextv2.v1',
     metavar='MODELNAME',
     help='modelname to use for prediction (default is wd14-convnextv2.v1)')
+parser.add_argument(
+    '--json',
+    action='store_true',
+    help='output json instead of plaintext'
+)
+parser.add_argument(
+    '--progress-bar',
+    action='store_true',
+    help='Show progress bar instead of processing messages'
+)
 args = parser.parse_args()
 
 # get interrogator configs
@@ -57,6 +82,11 @@ interrogator = interrogators[args.model]
 
 if args.cpu:
     interrogator.use_cpu()
+
+# Set quiet mode if progress bar is enabled
+if args.progress_bar:
+    interrogator.set_quiet(True)
+    logging.getLogger('tagger.interrogator').setLevel(logging.WARNING)
 
 def parse_exclude_tags() -> set[str]:
     if args.exclude_tags is None:
@@ -90,36 +120,63 @@ def image_interrogate(image_path: Path, tag_escape: bool, exclude_tags: Iterable
 
 def explore_image_files(folder_path: Path) -> Generator[Path, None, None]:
     """
-    Explore files by folder path
+    Explore files by folder path in lexicographic order
     """
+    paths = []
     for path in folder_path.iterdir():
         if path.is_file() and path.suffix in ['.png', '.jpg', '.jpeg', '.webp']:
-            yield path
+            paths.append(path)
         elif args.recursive and path.is_dir():
-            yield from explore_image_files(path)
+            paths.extend(explore_image_files(path))
+    paths.sort()
+    yield from paths
+
+def generate_output_string(image_path: str, tags: Dict):
+    if args.json:
+        return json.dumps({"file":str(image_path),"tags":tags})
+    else:
+        return ', '.join(tags.keys())
+
+def generate_output_string(image_path: str, tags: Dict):
+    if args.json:
+        return json.dumps({"file":str(image_path),"tags":tags})
+    else:
+        return ', '.join(tags.keys())
+
+
 
 if args.dir:
     root_path = Path(args.dir)
-    for image_path in explore_image_files(root_path):
+    # First collect all files to process for progress bar and logging
+    image_files = list(explore_image_files(root_path))
+    
+    if not image_files:
+        logger.warning(f"No image files found in directory: {root_path}")
+        sys.exit(0)
+        
+    iterator = tqdm(image_files) if args.progress_bar else image_files
+    for image_path in iterator:
         caption_path = image_path.parent / f'{image_path.stem}{args.ext}'
 
         if caption_path.is_file() and not args.overwrite:
             # skip if caption exists
-            print('skip:', image_path)
+            if not args.progress_bar:
+                logger.info(f"Skipping existing file: {image_path}")
             continue
 
-        print('processing:', image_path)
-        tags = image_interrogate(image_path, not args.rawtag, parse_exclude_tags())
-
-        tags_str = ', '.join(tags.keys())
-
-        with open(caption_path, 'w') as fp:
-            fp.write(tags_str)
+        if not args.progress_bar:
+            logger.info(f"Processing: {image_path}")
+        try:
+            tags = image_interrogate(image_path, not args.rawtag, parse_exclude_tags())
+            with open(caption_path, 'w') as fp:
+                fp.write(generate_output_string(image_path, tags))
+        except Exception as e:
+            logger.error(f"Failed to process {image_path}: {str(e)}")
 
 if args.file:
-    tags = image_interrogate(Path(args.file), not args.rawtag, parse_exclude_tags())
-    print(file=sys.stderr)
-    tags_str = ', '.join(tags.keys())
-    print(tags_str)
-
-
+    try:
+        tags = image_interrogate(Path(args.file), not args.rawtag, parse_exclude_tags())
+        print(generate_output_string(args.file, tags))
+    except Exception as e:
+        logger.error(f"Failed to process {args.file}: {str(e)}")
+        sys.exit(1)
