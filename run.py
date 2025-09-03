@@ -49,6 +49,12 @@ parser.add_argument(
     metavar='t1,t2,t3',
     help='Specify tags to exclude (Need comma-separated list)')
 parser.add_argument(
+    '--additional-tag',
+    dest='additional_tags',
+    action='append',
+    metavar='t1,t2,t3',
+    help='Specify additional tags (Need comma-separated list)')
+parser.add_argument(
     '--model',
     default='wd14-convnextv2.v1',
     metavar='MODELNAME',
@@ -77,7 +83,17 @@ def parse_exclude_tags() -> set[str]:
         reverse_escaped_tags.append(tag)
     return set([*tags, *reverse_escaped_tags])  # reduce duplicates
 
-def image_interrogate(image_path: Path, tag_escape: bool, exclude_tags: Iterable[str]) -> dict[str, float]:
+def parse_additional_tags() -> list[str]:
+    if args.additional_tags is None:
+        return list()
+
+    tags = []
+    for str in args.additional_tags:
+        for tag in str.split(','):
+            tags.append(tag.strip())
+    return list(set(tags))
+
+def image_interrogate(image_path: Path, tag_escape: bool, exclude_tags: Iterable[str], additional_tags: list[str]) -> dict[str, float]:
     """
     Predictions from a image path
     """
@@ -89,7 +105,8 @@ def image_interrogate(image_path: Path, tag_escape: bool, exclude_tags: Iterable
         threshold=args.threshold,
         escape_tag=tag_escape,
         replace_underscore=tag_escape,
-        exclude_tags=exclude_tags)
+        exclude_tags=exclude_tags,
+        additional_tags=additional_tags)
 
 def explore_image_files(folder_path: Path) -> Generator[Path, None, None]:
     """
@@ -112,7 +129,7 @@ if args.dir:
             continue
 
         print('processing:', image_path)
-        tags = image_interrogate(image_path, not args.rawtag, parse_exclude_tags())
+        tags = image_interrogate(image_path, not args.rawtag, parse_exclude_tags(), parse_additional_tags())
 
         tags_str = ', '.join(tags.keys())
 
@@ -120,7 +137,7 @@ if args.dir:
             fp.write(tags_str)
 
 if args.file:
-    tags = image_interrogate(Path(args.file), not args.rawtag, parse_exclude_tags())
+    tags = image_interrogate(Path(args.file), not args.rawtag, parse_exclude_tags(), parse_additional_tags())
     print(file=sys.stderr)
     tags_str = ', '.join(tags.keys())
     print(tags_str)
