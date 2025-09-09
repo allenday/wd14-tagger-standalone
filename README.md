@@ -27,6 +27,8 @@ options:
   --recursive           Enable recursive file search
   --exclude-tag t1,t2,t3
                         Specify tags to exclude (Need comma-separated list)
+  --additional-tag t1,t2,t3
+                        Specify tags to append (Need comma-separated list)
   --model MODELNAME     modelname to use for prediction (default is wd14-convnextv2.v1)
 ```
 
