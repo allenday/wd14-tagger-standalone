@@ -9,11 +9,11 @@ description = "Standalone WD14 tagger for image classification using ONNX models
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "corkborg", email = "corkborg@users.github.com"},
-    {name = "Allen Day", email = "allenday@users.github.com"}
+    {name = "corkborg", email = "corkborg@users.noreply.github.com"},
+    {name = "Allen Day", email = "allenday@users.noreply.github.com"}
 ]
 maintainers = [
-    {name = "corkborg", email = "corkborg@users.github.com"}
+    {name = "corkborg", email = "corkborg@users.noreply.github.com"}
 ]
 keywords = ["machine-learning", "image-classification", "onnx", "tagging", "waifu-diffusion"]
 classifiers = [
