@@ -6,7 +6,7 @@ import sys
 import tempfile
 import os
 
-# Add the project root to the path so we can import run
+# Add the project root to the path so we can import tagger modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tagger import cli as run
@@ -51,7 +51,7 @@ class TestArgumentParsing:
 class TestImageProcessing:
     """Test image processing functions."""
 
-    @patch('run.AbsInterrogator.postprocess_tags')
+    @patch('tagger.cli.AbsInterrogator.postprocess_tags')
     def test_image_interrogate_success(self, mock_postprocess, sample_image):
         """Test successful image interrogation."""
         # Setup mocks
@@ -63,7 +63,7 @@ class TestImageProcessing:
         mock_args.threshold = 0.35
 
         # Test
-        with patch('run.Image.open', return_value=sample_image):
+        with patch('tagger.cli.Image.open', return_value=sample_image):
             result = run.image_interrogate(
                 Path("test.jpg"),
                 tag_escape=True,
@@ -147,8 +147,8 @@ class TestOutputGeneration:
 class TestLoggingSetup:
     """Test logging configuration."""
 
-    @patch('run.structlog')
-    @patch('run.logging')
+    @patch('tagger.cli.structlog')
+    @patch('tagger.cli.logging')
     def test_setup_logging_without_progress_bar(self, mock_logging, mock_structlog):
         """Test logging setup without progress bar."""
         mock_logger = Mock()
@@ -160,8 +160,8 @@ class TestLoggingSetup:
         mock_structlog.configure.assert_called_once()
         assert result == mock_logger
 
-    @patch('run.structlog')
-    @patch('run.logging')
+    @patch('tagger.cli.structlog')
+    @patch('tagger.cli.logging')
     def test_setup_logging_with_progress_bar(self, mock_logging, mock_structlog):
         """Test logging setup with progress bar."""
         mock_logger = Mock()
@@ -179,8 +179,8 @@ class TestTqdmWriter:
 
     def test_tqdm_writer_no_progress_bar(self):
         """Test TqdmWriter when no progress bar is active."""
-        with patch('run._current_progress_bar', None):
-            with patch('run.sys.stderr') as mock_stderr:
+        with patch('tagger.cli._current_progress_bar', None):
+            with patch('tagger.cli.sys.stderr') as mock_stderr:
                 writer = run.TqdmWriter()
                 writer.write("test message")
                 mock_stderr.write.assert_called_once_with("test message")
@@ -188,16 +188,16 @@ class TestTqdmWriter:
     def test_tqdm_writer_with_progress_bar(self):
         """Test TqdmWriter when progress bar is active."""
         mock_progress_bar = Mock()
-        with patch('run._current_progress_bar', mock_progress_bar):
-            with patch('run.tqdm.write') as mock_tqdm_write:
+        with patch('tagger.cli._current_progress_bar', mock_progress_bar):
+            with patch('tagger.cli.tqdm.write') as mock_tqdm_write:
                 writer = run.TqdmWriter()
                 writer.write("test message\n")
                 mock_tqdm_write.assert_called_once_with("test message", file=sys.stderr)
 
     def test_tqdm_writer_flush_no_progress_bar(self):
         """Test TqdmWriter flush when no progress bar is active."""
-        with patch('run._current_progress_bar', None):
-            with patch('run.sys.stderr') as mock_stderr:
+        with patch('tagger.cli._current_progress_bar', None):
+            with patch('tagger.cli.sys.stderr') as mock_stderr:
                 writer = run.TqdmWriter()
                 writer.flush()
                 mock_stderr.flush.assert_called_once()
@@ -205,8 +205,8 @@ class TestTqdmWriter:
     def test_tqdm_writer_flush_with_progress_bar(self):
         """Test TqdmWriter flush when progress bar is active."""
         mock_progress_bar = Mock()
-        with patch('run._current_progress_bar', mock_progress_bar):
-            with patch('run.sys.stderr') as mock_stderr:
+        with patch('tagger.cli._current_progress_bar', mock_progress_bar):
+            with patch('tagger.cli.sys.stderr') as mock_stderr:
                 writer = run.TqdmWriter()
                 writer.flush()
                 mock_stderr.flush.assert_not_called()
