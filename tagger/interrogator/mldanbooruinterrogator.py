@@ -1,6 +1,7 @@
 import sys
 import json
 import logging
+import structlog
 
 from PIL import Image
 from numpy import asarray, float32, expand_dims, exp
@@ -10,7 +11,7 @@ from huggingface_hub import hf_hub_download
 from tagger.interrogator.interrogator import AbsInterrogator
 import tagger.dbimutils as dbimutils
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 class MLDanbooruInterrogator(AbsInterrogator):
     """ Interrogator for the MLDanbooru model. """
@@ -30,7 +31,7 @@ class MLDanbooruInterrogator(AbsInterrogator):
 
     def download(self) -> tuple[str, str]:
         if not self.quiet:
-            logger.info(f"Loading {self.name} model file from {self.repo_id}")
+            logger.info("Loading model file", model=self.name, repo_id=self.repo_id)
 
         model_path = hf_hub_download(
             repo_id=self.repo_id,
@@ -49,7 +50,7 @@ class MLDanbooruInterrogator(AbsInterrogator):
         self.model = InferenceSession(model_path,
                                         providers=self.providers)
         if not self.quiet:
-            logger.info(f'Loaded {self.name} model from {model_path}')
+            logger.info("Model loaded", model=self.name, path=model_path)
 
         with open(tags_path, 'r', encoding='utf-8') as filen:
             self.tags = json.load(filen)
