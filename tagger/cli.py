@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Dict
 import argparse
 import structlog
+import cv2
+import numpy as np
 
 from tagger.interrogators import interrogators
 
@@ -124,6 +126,11 @@ parser.add_argument(
     action='store_true',
     help='Show progress bar instead of processing messages'
 )
+parser.add_argument(
+    '--sample',
+    default='30',
+    help='Video sampling mode: "all" (every frame), "keyframes" (scene changes), or integer N (every Nth frame). Default: 30'
+)
 def parse_args():
     """Parse command line arguments."""
     return parser.parse_args()
@@ -135,59 +142,75 @@ def process_directory(args, logger, interrogator):
 
     root_path = Path(args.dir)
     # First collect all files to process for progress bar and logging
-    image_files = list(explore_image_files(root_path, args.recursive))
+    media_files = list(explore_media_files(root_path, args.recursive))
 
-    if not image_files:
-        logger.warning("No image files found", directory=str(root_path))
+    if not media_files:
+        logger.warning("No media files found", directory=str(root_path))
         return
 
     logger.info("Starting batch processing",
                 directory=str(root_path),
-                total_files=len(image_files),
+                total_files=len(media_files),
                 model=args.model,
                 threshold=args.threshold)
 
     if args.progress_bar:
-        _current_progress_bar = tqdm(image_files, desc="Processing images")
+        _current_progress_bar = tqdm(media_files, desc="Processing media")
         iterator = _current_progress_bar
     else:
-        iterator = image_files
+        iterator = media_files
 
     processed_count = 0
     skipped_count = 0
     error_count = 0
 
-    for image_path in iterator:
-        caption_path = image_path.parent / f'{image_path.stem}{args.ext}'
-
-        if caption_path.is_file() and not args.overwrite:
-            skipped_count += 1
-            if not args.progress_bar:
-                logger.info("Skipping existing file",
-                           file=str(image_path.name),
-                           caption_exists=True)
-            continue
-
-        if not args.progress_bar:
-            logger.info("Processing image",
-                       file=str(image_path.name),
-                       path=str(image_path))
+    for media_path in iterator:
         try:
-            tags = image_interrogate(image_path, not args.rawtag, parse_exclude_tags(args), parse_additional_tags(args), args, interrogator)
-            with open(caption_path, 'w') as fp:
-                fp.write(generate_output_string(image_path, tags, args))
-            processed_count += 1
+            if is_video_file(media_path):
+                # Process video file
+                if not args.progress_bar:
+                    logger.info("Processing video",
+                               file=str(media_path.name),
+                               path=str(media_path))
 
-            if not args.progress_bar:
-                logger.info("Generated tags",
-                           file=str(image_path.name),
-                           tag_count=len(tags),
-                           output_file=str(caption_path.name))
+                frames_processed = process_video_file(
+                    media_path, not args.rawtag, parse_exclude_tags(args),
+                    parse_additional_tags(args), args, interrogator, logger)
+                processed_count += frames_processed
+
+            else:
+                # Process image file
+                caption_path = media_path.parent / f'{media_path.stem}{args.ext}'
+
+                if caption_path.is_file() and not args.overwrite:
+                    skipped_count += 1
+                    if not args.progress_bar:
+                        logger.info("Skipping existing file",
+                                   file=str(media_path.name),
+                                   caption_exists=True)
+                    continue
+
+                if not args.progress_bar:
+                    logger.info("Processing image",
+                               file=str(media_path.name),
+                               path=str(media_path))
+
+                tags = image_interrogate(media_path, not args.rawtag, parse_exclude_tags(args), parse_additional_tags(args), args, interrogator)
+                with open(caption_path, 'w') as fp:
+                    fp.write(generate_output_string(media_path, tags, args))
+                processed_count += 1
+
+                if not args.progress_bar:
+                    logger.info("Generated tags",
+                               file=str(media_path.name),
+                               tag_count=len(tags),
+                               output_file=str(caption_path.name))
+
         except Exception as e:
             error_count += 1
             logger.error("Processing failed",
-                        file=str(image_path.name),
-                        path=str(image_path),
+                        file=str(media_path.name),
+                        path=str(media_path),
                         error=str(e),
                         error_type=type(e).__name__)
 
@@ -200,11 +223,11 @@ def process_directory(args, logger, interrogator):
                 processed=processed_count,
                 skipped=skipped_count,
                 errors=error_count,
-                total=len(image_files))
+                total=len(media_files))
 
 
 def process_single_file(args, logger, interrogator):
-    """Process a single image file."""
+    """Process a single image or video file."""
     file_path = Path(args.file)
     logger.info("Processing single file",
                 file=str(file_path.name),
@@ -212,13 +235,25 @@ def process_single_file(args, logger, interrogator):
                 model=args.model,
                 threshold=args.threshold)
     try:
-        tags = image_interrogate(file_path, not args.rawtag, parse_exclude_tags(args), parse_additional_tags(args), args, interrogator)
-        output = generate_output_string(args.file, tags, args)
-        print(output)
-        logger.info("Generated tags for single file",
-                   file=str(file_path.name),
-                   tag_count=len(tags),
-                   output_format="json" if args.json else "text")
+        if is_video_file(file_path):
+            # Process video file
+            frames_processed = process_video_file(
+                file_path, not args.rawtag, parse_exclude_tags(args),
+                parse_additional_tags(args), args, interrogator, logger)
+
+            logger.info("Generated tags for video file",
+                       file=str(file_path.name),
+                       frames_processed=frames_processed,
+                       sample_mode=args.sample)
+        else:
+            # Process image file
+            tags = image_interrogate(file_path, not args.rawtag, parse_exclude_tags(args), parse_additional_tags(args), args, interrogator)
+            output = generate_output_string(args.file, tags, args)
+            print(output)
+            logger.info("Generated tags for single file",
+                       file=str(file_path.name),
+                       tag_count=len(tags),
+                       output_format="json" if args.json else "text")
     except Exception as e:
         logger.error("Single file processing failed",
                     file=str(file_path.name),
@@ -268,16 +303,20 @@ def image_interrogate(image_path: Path, tag_escape: bool, exclude_tags: Iterable
         exclude_tags=exclude_tags,
         additional_tags=additional_tags)
 
-def explore_image_files(folder_path: Path, recursive: bool) -> Generator[Path, None, None]:
+def explore_media_files(folder_path: Path, recursive: bool) -> Generator[Path, None, None]:
     """
-    Explore files by folder path in lexicographic order
+    Explore image and video files by folder path in lexicographic order
     """
+    image_extensions = ['.png', '.jpg', '.jpeg', '.webp']
+    video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.webm']
+    supported_extensions = image_extensions + video_extensions
+
     paths = []
     for path in folder_path.iterdir():
-        if path.is_file() and path.suffix in ['.png', '.jpg', '.jpeg', '.webp']:
+        if path.is_file() and path.suffix.lower() in supported_extensions:
             paths.append(path)
         elif recursive and path.is_dir():
-            paths.extend(explore_image_files(path, recursive))
+            paths.extend(explore_media_files(path, recursive))
     paths.sort()
     yield from paths
 
@@ -286,6 +325,99 @@ def generate_output_string(image_path: str, tags: Dict, args):
         return json.dumps({"file":str(image_path),"tags":tags})
     else:
         return ', '.join(tags.keys())
+
+def is_video_file(file_path: Path) -> bool:
+    """Check if file is a video based on extension."""
+    video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.webm']
+    return file_path.suffix.lower() in video_extensions
+
+def process_video_file(video_path: Path, tag_escape: bool, exclude_tags: Iterable[str], additional_tags: list[str], args, interrogator, logger) -> int:
+    """
+    Process a video file by extracting frames and tagging each one.
+    Returns the number of frames processed.
+    """
+    cap = cv2.VideoCapture(str(video_path))
+
+    if not cap.isOpened():
+        raise ValueError(f"Cannot open video file: {video_path}")
+
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+
+    # Determine frame sampling strategy
+    if args.sample == 'all':
+        frame_indices = list(range(total_frames))
+    elif args.sample == 'keyframes':
+        # For now, implement simple keyframe detection (every 30 frames)
+        # TODO: Implement proper scene detection
+        frame_indices = list(range(0, total_frames, 30))
+    else:
+        # Sample every Nth frame
+        try:
+            step = int(args.sample)
+        except ValueError:
+            raise ValueError(f"Invalid sample value: {args.sample}. Must be 'all', 'keyframes', or an integer")
+        frame_indices = list(range(0, total_frames, step))
+
+    if not args.progress_bar:
+        logger.info("Starting video processing",
+                   file=str(video_path.name),
+                   total_frames=total_frames,
+                   sample_mode=args.sample,
+                   frames_to_process=len(frame_indices))
+
+    processed_frames = 0
+
+    for frame_idx in frame_indices:
+        # Seek to specific frame
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        ret, frame = cap.read()
+
+        if not ret:
+            logger.warning("Failed to read frame",
+                          frame_index=frame_idx,
+                          file=str(video_path.name))
+            continue
+
+        # Convert BGR to RGB for PIL
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        image = Image.fromarray(frame_rgb)
+
+        # Interrogate the frame
+        result = interrogator.interrogate(image)
+        tags = AbsInterrogator.postprocess_tags(
+            result[1],
+            threshold=args.threshold,
+            escape_tag=tag_escape,
+            replace_underscore=tag_escape,
+            exclude_tags=exclude_tags,
+            additional_tags=additional_tags)
+
+        # Generate output file path
+        frame_output_path = video_path.parent / f'{video_path.stem}.frame_{frame_idx:06d}{args.ext}'
+
+        # Write tags to file
+        with open(frame_output_path, 'w') as fp:
+            fp.write(generate_output_string(str(frame_output_path), tags, args))
+
+        processed_frames += 1
+
+        if not args.progress_bar:
+            logger.info("Processed video frame",
+                       frame_index=frame_idx,
+                       file=str(video_path.name),
+                       tag_count=len(tags),
+                       output_file=str(frame_output_path.name))
+
+    cap.release()
+
+    if not args.progress_bar:
+        logger.info("Video processing complete",
+                   file=str(video_path.name),
+                   frames_processed=processed_frames,
+                   total_frames=total_frames)
+
+    return processed_frames
 
 
 
