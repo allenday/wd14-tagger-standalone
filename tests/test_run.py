@@ -78,40 +78,44 @@ class TestImageProcessing:
         mock_interrogator.interrogate.assert_called_once()
         mock_postprocess.assert_called_once()
 
-    def test_explore_image_files_no_recursive(self, tmp_path):
-        """Test exploring image files without recursion."""
+    def test_explore_media_files_no_recursive(self, tmp_path):
+        """Test exploring media files without recursion."""
         # Create test files
         (tmp_path / "image1.jpg").touch()
         (tmp_path / "image2.png").touch()
-        (tmp_path / "not_image.txt").touch()
+        (tmp_path / "video1.mp4").touch()
+        (tmp_path / "not_media.txt").touch()
         (tmp_path / "subdir").mkdir()
         (tmp_path / "subdir" / "image3.webp").touch()
 
         # Test
-        result = list(run.explore_image_files(tmp_path, recursive=False))
+        result = list(run.explore_media_files(tmp_path, recursive=False))
 
         # Should only find files in root, not subdirectory
-        assert len(result) == 2
+        assert len(result) == 3  # 2 images + 1 video
         filenames = [f.name for f in result]
         assert "image1.jpg" in filenames
         assert "image2.png" in filenames
+        assert "video1.mp4" in filenames
         assert "image3.webp" not in filenames
 
-    def test_explore_image_files_recursive(self, tmp_path):
-        """Test exploring image files with recursion."""
+    def test_explore_media_files_recursive(self, tmp_path):
+        """Test exploring media files with recursion."""
         # Create test files
         (tmp_path / "image1.jpg").touch()
+        (tmp_path / "video1.mov").touch()
         subdir = tmp_path / "subdir"
         subdir.mkdir()
         (subdir / "image2.webp").touch()
 
         # Test
-        result = list(run.explore_image_files(tmp_path, recursive=True))
+        result = list(run.explore_media_files(tmp_path, recursive=True))
 
         # Should find files in both root and subdirectory
-        assert len(result) == 2
+        assert len(result) == 3  # 1 image + 1 video + 1 image in subdir
         filenames = [f.name for f in result]
         assert "image1.jpg" in filenames
+        assert "video1.mov" in filenames
         assert "image2.webp" in filenames
 
 

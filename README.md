@@ -49,18 +49,39 @@ python run.py --file image.jpg
 python run.py --dir /path/to/images
 ```
 
+### Video Support
+
+The tool now supports video files (`.mp4`, `.avi`, `.mov`, `.mkv`, `.webm`) in addition to images. When processing videos, frames are extracted and tagged individually, with output files named using the pattern `video_name.frame_000001.txt`.
+
+```bash
+# Process a single video file (samples every 30th frame by default)
+wd14-tagger --file video.mp4
+
+# Process all videos in a directory
+wd14-tagger --dir /path/to/videos --recursive
+
+# Sample every frame (warning: may produce many output files)
+wd14-tagger --file video.mp4 --sample all
+
+# Sample keyframes only (scene changes)
+wd14-tagger --file video.mp4 --sample keyframes
+
+# Sample every 10th frame
+wd14-tagger --file video.mp4 --sample 10
+```
+
 ### Options
 
 ```
 usage: wd14-tagger [-h] (--dir DIR | --file FILE) [--threshold THRESHOLD]
                    [--ext EXT] [--overwrite] [--cpu] [--rawtag] [--recursive]
                    [--exclude-tag t1,t2,t3] [--additional-tag t1,t2,t3]
-                   [--model MODELNAME] [--json] [--progress-bar]
+                   [--model MODELNAME] [--json] [--progress-bar] [--sample SAMPLE]
 
 options:
   -h, --help            show this help message and exit
-  --dir DIR             Predictions for all images in the directory
-  --file FILE           Predictions for one file
+  --dir DIR             Predictions for all media files in the directory
+  --file FILE           Predictions for one file (image or video)
   --threshold THRESHOLD
                         Prediction threshold (default is 0.35)
   --ext EXT             Extension to add to caption file in case of dir option
@@ -77,6 +98,9 @@ options:
                         wd14-convnextv2.v1)
   --json                output json instead of plaintext
   --progress-bar        Show progress bar instead of processing messages
+  --sample SAMPLE       Video sampling mode: "all" (every frame), "keyframes"
+                        (scene changes), or integer N (every Nth frame).
+                        Default: 30
 ```
 
 ## Supported Models
