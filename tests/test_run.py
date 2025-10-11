@@ -126,11 +126,23 @@ class TestOutputGeneration:
         """Test generating text format output."""
         mock_args = Mock()
         mock_args.json = False
+        mock_args.tokens = False  # Ensure tokens mode is disabled
 
         tags = {"tag1": 0.8, "tag2": 0.6, "tag3": 0.4}
         result = run.generate_output_string("test.jpg", tags, mock_args)
 
         assert result == "tag1, tag2, tag3"
+
+    def test_generate_output_string_tokens_format(self):
+        """Test generating tokens format output."""
+        mock_args = Mock()
+        mock_args.json = False
+        mock_args.tokens = True  # Enable tokens mode
+
+        tags = {28: 0.8, 5: 0.6, 123: 0.4}  # Token IDs instead of strings
+        result = run.generate_output_string("test.jpg", tags, mock_args)
+
+        assert result == "28:0.800, 5:0.600, 123:0.400"
 
     def test_generate_output_string_json_format(self):
         """Test generating JSON format output."""

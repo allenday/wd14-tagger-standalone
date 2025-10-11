@@ -24,7 +24,7 @@ from .interrogator.interrogator import AbsInterrogator
 from .vocabulary import TagVocabulary
 from .api import WD14Tagger
 
-__version__ = "0.1.6"
+__version__ = "0.1.7"
 __author__ = "corkborg, Allen Day"
 __email__ = "corkborg@users.noreply.github.com"
 
@@ -36,7 +36,10 @@ __all__ = [
     "TagVocabulary",
     "get_available_models",
     "tag_image",
+    "tag_images",
     "tag_images_batch",
+    "get_vocab",
+    "get_model_info",
     "dump_vocab",
 ]
 
@@ -77,6 +80,46 @@ def tag_images_batch(image_paths, model_name='wd14-convnextv2.v1', threshold=0.3
     """
     tagger = WD14Tagger(model_name)
     return tagger.tag_images_batch(image_paths, threshold=threshold, **kwargs)
+
+def tag_images(image_inputs, model_name='wd14-convnextv2.v1', threshold=0.35, return_logits=False, **kwargs):
+    """Tag multiple images with enhanced API.
+
+    Args:
+        image_inputs (List[Union[str, np.ndarray, PIL.Image]]): List of images
+        model_name (str): Model identifier (default: 'wd14-convnextv2.v1')
+        threshold (float): Confidence threshold (default: 0.35)
+        return_logits (bool): Also return raw logits
+        **kwargs: Additional arguments passed to tag_image
+
+    Returns:
+        List[List[Dict[str, Any]]] or Tuple: Token lists or (tokens, logits, id_order)
+    """
+    tagger = WD14Tagger(model_name)
+    return tagger.tag_images(image_inputs, threshold=threshold, return_logits=return_logits, **kwargs)
+
+def get_vocab(model_name='wd14-convnextv2.v1'):
+    """Get vocabulary as dict[int, str] for a model.
+
+    Args:
+        model_name (str): Model identifier (default: 'wd14-convnextv2.v1')
+
+    Returns:
+        Dict[int, str]: Token ID to tag string mapping
+    """
+    tagger = WD14Tagger(model_name)
+    return tagger.get_vocab()
+
+def get_model_info(model_name='wd14-convnextv2.v1'):
+    """Get comprehensive model information.
+
+    Args:
+        model_name (str): Model identifier (default: 'wd14-convnextv2.v1')
+
+    Returns:
+        Dict[str, Any]: Model metadata including vocab info
+    """
+    tagger = WD14Tagger(model_name)
+    return tagger.get_model_info()
 
 def dump_vocab(model_name='wd14-convnextv2.v1'):
     """Dump vocabulary for a specific model.
