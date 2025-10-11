@@ -122,6 +122,11 @@ parser.add_argument(
     help='output json instead of plaintext'
 )
 parser.add_argument(
+    '--tokens',
+    action='store_true',
+    help='output integer token IDs instead of tag strings'
+)
+parser.add_argument(
     '--progress-bar',
     action='store_true',
     help='Show progress bar instead of processing messages'
@@ -288,12 +293,16 @@ def parse_additional_tags(args) -> list[str]:
             tags.append(tag.strip())
     return list(set(tags))
 
-def image_interrogate(image_path: Path, tag_escape: bool, exclude_tags: Iterable[str], additional_tags: list[str], args, interrogator) -> dict[str, float]:
+def image_interrogate(image_path: Path, tag_escape: bool, exclude_tags: Iterable[str], additional_tags: list[str], args, interrogator) -> Dict:
     """
     Predictions from a image path
     """
     im = Image.open(image_path)
     result = interrogator.interrogate(im)
+
+    # Ensure interrogator has vocabulary if tokens are requested
+    if args.tokens and interrogator.vocabulary is None:
+        interrogator.vocabulary = interrogator.build_vocabulary_from_tags()
 
     return AbsInterrogator.postprocess_tags(
         result[1],
@@ -301,7 +310,9 @@ def image_interrogate(image_path: Path, tag_escape: bool, exclude_tags: Iterable
         escape_tag=tag_escape,
         replace_underscore=tag_escape,
         exclude_tags=exclude_tags,
-        additional_tags=additional_tags)
+        additional_tags=additional_tags,
+        return_tokens=args.tokens,
+        vocabulary=interrogator.vocabulary)
 
 def explore_media_files(folder_path: Path, recursive: bool) -> Generator[Path, None, None]:
     """
@@ -324,7 +335,12 @@ def generate_output_string(image_path: str, tags: Dict, args):
     if args.json:
         return json.dumps({"file":str(image_path),"tags":tags})
     else:
-        return ', '.join(tags.keys())
+        if args.tokens:
+            # For token output, return token_id:confidence pairs
+            return ', '.join([f"{token_id}:{confidence:.3f}" for token_id, confidence in tags.items()])
+        else:
+            # For tag output, return tag names only
+            return ', '.join(tags.keys())
 
 def is_video_file(file_path: Path) -> bool:
     """Check if file is a video based on extension."""
@@ -385,13 +401,20 @@ def process_video_file(video_path: Path, tag_escape: bool, exclude_tags: Iterabl
 
         # Interrogate the frame
         result = interrogator.interrogate(image)
+
+        # Ensure interrogator has vocabulary if tokens are requested
+        if args.tokens and interrogator.vocabulary is None:
+            interrogator.vocabulary = interrogator.build_vocabulary_from_tags()
+
         tags = AbsInterrogator.postprocess_tags(
             result[1],
             threshold=args.threshold,
             escape_tag=tag_escape,
             replace_underscore=tag_escape,
             exclude_tags=exclude_tags,
-            additional_tags=additional_tags)
+            additional_tags=additional_tags,
+            return_tokens=args.tokens,
+            vocabulary=interrogator.vocabulary)
 
         # Generate output file path
         frame_output_path = video_path.parent / f'{video_path.stem}.frame_{frame_idx:06d}{args.ext}'
