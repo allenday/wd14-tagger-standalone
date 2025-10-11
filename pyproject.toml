@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wd14-tagger-standalone"
-version = "0.1.4"
-description = "Standalone WD14 tagger for image classification using ONNX models"
+version = "0.1.5"
+description = "Library and CLI for WD14 image tagging with ONNX models - supports both programmatic use and command line interface"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
@@ -15,7 +15,7 @@ authors = [
 maintainers = [
     {name = "corkborg", email = "corkborg@users.noreply.github.com"}
 ]
-keywords = ["machine-learning", "image-classification", "onnx", "tagging", "waifu-diffusion"]
+keywords = ["machine-learning", "image-classification", "onnx", "tagging", "waifu-diffusion", "library", "api", "computer-vision"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
