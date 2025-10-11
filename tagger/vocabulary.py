@@ -1,6 +1,6 @@
 import json
 import hashlib
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Any
 from pathlib import Path
 import pandas as pd
 
@@ -164,7 +164,30 @@ class TagVocabulary:
         # Sort tags by ID to ensure consistent ordering
         sorted_tags = self.get_all_tags()
         vocab_string = '|'.join(sorted_tags)
-        return hashlib.sha256(vocab_string.encode('utf-8')).hexdigest()[:16]
+        return hashlib.sha256(vocab_string.encode('utf-8')).hexdigest()
+
+    def get_vocab_metadata(self) -> Dict[str, Any]:
+        """Get comprehensive vocabulary metadata.
+
+        Returns:
+            Dictionary with vocab_size, vocab_version, vocab_hash
+        """
+        return {
+            'vocab_size': len(self.tag_to_id),
+            'vocab_version': '1.0',  # Version of vocabulary format
+            'vocab_hash': self.create_vocab_hash()
+        }
+
+    def dump_vocab(self) -> List[Dict[str, Any]]:
+        """Export full vocabulary as structured data.
+
+        Returns:
+            List of dictionaries with token_id, label for each vocabulary entry
+        """
+        return [
+            {'token_id': token_id, 'label': tag}
+            for token_id, tag in sorted(self.id_to_tag.items())
+        ]
 
 
 def build_vocabulary_from_interrogators(interrogator_dict: Dict[str, any], vocab_path: Path) -> TagVocabulary:

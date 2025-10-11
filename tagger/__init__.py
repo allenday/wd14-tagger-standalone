@@ -24,7 +24,7 @@ from .interrogator.interrogator import AbsInterrogator
 from .vocabulary import TagVocabulary
 from .api import WD14Tagger
 
-__version__ = "0.1.5"
+__version__ = "0.1.6"
 __author__ = "corkborg, Allen Day"
 __email__ = "corkborg@users.noreply.github.com"
 
@@ -37,6 +37,7 @@ __all__ = [
     "get_available_models",
     "tag_image",
     "tag_images_batch",
+    "dump_vocab",
 ]
 
 def get_available_models():
@@ -54,10 +55,10 @@ def tag_image(image_path, model_name='wd14-convnextv2.v1', threshold=0.35, **kwa
         image_path (str): Path to image file
         model_name (str): Model identifier (default: 'wd14-convnextv2.v1')
         threshold (float): Confidence threshold (default: 0.35)
-        **kwargs: Additional arguments passed to postprocess_tags
+        **kwargs: Additional arguments passed to tag_image
 
     Returns:
-        Dict[str, float]: Dictionary mapping tag names to confidence scores
+        List[Dict[str, Any]]: List of token objects: [{'token_id': int, 'label': str, 'score': float}, ...]
     """
     tagger = WD14Tagger(model_name)
     return tagger.tag_image(image_path, threshold=threshold, **kwargs)
@@ -69,10 +70,22 @@ def tag_images_batch(image_paths, model_name='wd14-convnextv2.v1', threshold=0.3
         image_paths (List[str]): List of image file paths
         model_name (str): Model identifier (default: 'wd14-convnextv2.v1')
         threshold (float): Confidence threshold (default: 0.35)
-        **kwargs: Additional arguments passed to postprocess_tags
+        **kwargs: Additional arguments passed to tag_image
 
     Returns:
-        List[Dict[str, float]]: List of tag dictionaries for each image
+        List[List[Dict[str, Any]]]: List of token lists for each image
     """
     tagger = WD14Tagger(model_name)
-    return [tagger.tag_image(path, threshold=threshold, **kwargs) for path in image_paths]
+    return tagger.tag_images_batch(image_paths, threshold=threshold, **kwargs)
+
+def dump_vocab(model_name='wd14-convnextv2.v1'):
+    """Dump vocabulary for a specific model.
+
+    Args:
+        model_name (str): Model identifier (default: 'wd14-convnextv2.v1')
+
+    Returns:
+        List[Dict[str, Any]]: List of token objects: [{'token_id': int, 'label': str}, ...]
+    """
+    tagger = WD14Tagger(model_name)
+    return tagger.dump_vocab()

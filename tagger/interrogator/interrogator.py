@@ -98,8 +98,16 @@ class AbsInterrogator:
             self.load()
 
         vocab = TagVocabulary()
-        if self.tags is not None and 'name' in self.tags.columns:
+
+        # Handle standard pandas DataFrame format (WD14, MLDanbooru models)
+        if hasattr(self, 'tags') and self.tags is not None and hasattr(self.tags, 'columns') and 'name' in self.tags.columns:
             tags = self.tags['name'].tolist()
+            vocab.add_tags_from_list([tag for tag in tags if isinstance(tag, str)])
+
+        # Handle Camie Tagger metadata format
+        elif hasattr(self, 'metadata') and self.metadata is not None and 'idx_to_tag' in self.metadata:
+            # Get all tags from the idx_to_tag mapping
+            tags = list(self.metadata['idx_to_tag'].values())
             vocab.add_tags_from_list([tag for tag in tags if isinstance(tag, str)])
 
         return vocab

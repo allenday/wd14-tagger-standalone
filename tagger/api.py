@@ -5,9 +5,10 @@ Provides a simple, Pythonic interface for image tagging that abstracts away
 the complexity of managing interrogators and vocabularies.
 """
 
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Union, Any, Tuple
 from pathlib import Path
 from PIL import Image
+import numpy as np
 
 from .interrogators import interrogators
 from .interrogator.interrogator import AbsInterrogator
@@ -30,7 +31,6 @@ class WD14Tagger:
     def __init__(
         self,
         model_name: str = 'wd14-convnextv2.v1',
-        enable_tokens: bool = False,
         use_cpu: bool = False,
         quiet: bool = True
     ):
@@ -38,7 +38,6 @@ class WD14Tagger:
 
         Args:
             model_name: Name of the model to use (see get_available_models())
-            enable_tokens: Whether to build vocabulary for token output
             use_cpu: Force CPU-only execution
             quiet: Suppress logging output
         """
@@ -48,7 +47,6 @@ class WD14Tagger:
 
         self.model_name = model_name
         self.interrogator = interrogators[model_name]
-        self.enable_tokens = enable_tokens
         self.vocabulary: Optional[TagVocabulary] = None
 
         if use_cpu:
@@ -56,9 +54,8 @@ class WD14Tagger:
 
         self.interrogator.set_quiet(quiet)
 
-        # Pre-build vocabulary if tokens are enabled
-        if enable_tokens:
-            self._ensure_vocabulary()
+        # Always build vocabulary for token support
+        self._ensure_vocabulary()
 
     def _ensure_vocabulary(self):
         """Ensure vocabulary is built for token output."""
@@ -83,29 +80,30 @@ class WD14Tagger:
         self,
         image_input: Union[str, Path, Image.Image],
         threshold: float = 0.35,
-        return_tokens: bool = False,
         additional_tags: Optional[List[str]] = None,
         exclude_tags: Optional[List[str]] = None,
         sort_by_alphabetical_order: bool = False,
         add_confident_as_weight: bool = False,
         replace_underscore: bool = False,
-        escape_tag: bool = False
-    ) -> Union[Dict[str, float], Dict[int, float]]:
+        escape_tag: bool = False,
+        return_raw_logits: bool = False
+    ) -> Union[List[Dict[str, Any]], Tuple[List[Dict[str, Any]], np.ndarray]]:
         """Tag a single image.
 
         Args:
             image_input: Path to image file or PIL Image object
             threshold: Confidence threshold for tag inclusion
-            return_tokens: Return token IDs instead of tag strings
             additional_tags: Tags to always include with confidence 1.0
             exclude_tags: Tags to exclude from results
             sort_by_alphabetical_order: Sort by tag name instead of confidence
             add_confident_as_weight: Format tags as (tag:confidence)
             replace_underscore: Replace underscores with spaces in tag names
             escape_tag: Escape special characters in tag names
+            return_raw_logits: Also return raw model logits in fixed order
 
         Returns:
-            Dictionary mapping tags/tokens to confidence scores
+            List of token objects: [{'token_id': int, 'label': str, 'score': float}, ...]
+            If return_raw_logits=True: (token_list, raw_logits_array)
         """
         # Load image if needed
         if isinstance(image_input, (str, Path)):
@@ -123,17 +121,8 @@ class WD14Tagger:
         additional_tags = additional_tags or []
         exclude_tags = set(exclude_tags or [])
 
-        # Handle token output
-        if return_tokens:
-            if not self.enable_tokens:
-                raise ValueError("Token output requires enable_tokens=True during initialization")
-            self._ensure_vocabulary()
-            vocabulary = self.vocabulary
-        else:
-            vocabulary = None
-
-        # Post-process tags
-        return AbsInterrogator.postprocess_tags(
+        # Process tags using the traditional method first
+        processed_tags = AbsInterrogator.postprocess_tags(
             tag_probs,
             threshold=threshold,
             additional_tags=additional_tags,
@@ -142,36 +131,66 @@ class WD14Tagger:
             add_confident_as_weight=add_confident_as_weight,
             replace_underscore=replace_underscore,
             escape_tag=escape_tag,
-            return_tokens=return_tokens,
-            vocabulary=vocabulary
+            return_tokens=False,
+            vocabulary=None
         )
+
+        # Convert to structured token format
+        tokens = []
+        for tag, score in processed_tags.items():
+            token_id = self.vocabulary.get_tag_id(tag)
+            if token_id is not None:  # Only include tags that have token IDs
+                tokens.append({
+                    'token_id': token_id,
+                    'label': tag,
+                    'score': float(score)
+                })
+
+        # Sort by score (descending) if not alphabetical
+        if not sort_by_alphabetical_order:
+            tokens.sort(key=lambda x: x['score'], reverse=True)
+        else:
+            tokens.sort(key=lambda x: x['label'])
+
+        # Return raw logits if requested
+        if return_raw_logits:
+            # Convert tag_probs to ordered array matching vocabulary order
+            vocab_size = len(self.vocabulary.get_all_tags())
+            raw_logits = np.zeros(vocab_size)
+            for tag, prob in tag_probs.items():
+                token_id = self.vocabulary.get_tag_id(tag)
+                if token_id is not None and token_id < vocab_size:
+                    raw_logits[token_id] = prob
+            return tokens, raw_logits
+
+        return tokens
 
     def tag_images_batch(
         self,
         image_inputs: List[Union[str, Path, Image.Image]],
         threshold: float = 0.35,
-        return_tokens: bool = False,
         **kwargs
-    ) -> List[Union[Dict[str, float], Dict[int, float]]]:
+    ) -> List[List[Dict[str, Any]]]:
         """Tag multiple images efficiently.
 
         Args:
             image_inputs: List of image paths or PIL Image objects
             threshold: Confidence threshold for tag inclusion
-            return_tokens: Return token IDs instead of tag strings
             **kwargs: Additional arguments passed to tag_image
 
         Returns:
-            List of tag/token dictionaries for each image
+            List of token lists for each image: [[{'token_id': int, 'label': str, 'score': float}], ...]
         """
         results = []
         for image_input in image_inputs:
             tags = self.tag_image(
                 image_input,
                 threshold=threshold,
-                return_tokens=return_tokens,
                 **kwargs
             )
+            # Handle case where raw_logits might be returned
+            if isinstance(tags, tuple):
+                tags = tags[0]  # Take just the token list
             results.append(tags)
         return results
 
@@ -180,28 +199,34 @@ class WD14Tagger:
 
         Returns:
             TagVocabulary object for converting between tags and tokens
-
-        Raises:
-            RuntimeError: If tokens are not enabled
         """
-        if not self.enable_tokens:
-            raise RuntimeError("Vocabulary access requires enable_tokens=True")
         self._ensure_vocabulary()
         return self.vocabulary
+
+    def dump_vocab(self) -> List[Dict[str, Any]]:
+        """Export full vocabulary as structured data.
+
+        Returns:
+            List of dictionaries with token_id, label for each vocabulary entry
+        """
+        self._ensure_vocabulary()
+        return self.vocabulary.dump_vocab()
 
     def get_model_info(self) -> Dict[str, Any]:
         """Get information about the current model.
 
         Returns:
-            Dictionary with model metadata
+            Dictionary with model metadata including vocabulary info
         """
+        self._ensure_vocabulary()
+        vocab_metadata = self.vocabulary.get_vocab_metadata()
+
         return {
             'name': self.model_name,
             'display_name': self.interrogator.name,
             'is_loaded': self.is_loaded,
-            'tokens_enabled': self.enable_tokens,
-            'vocab_size': len(self.vocabulary.get_all_tags()) if self.vocabulary else None,
-            'providers': self.interrogator.providers
+            'providers': self.interrogator.providers,
+            **vocab_metadata  # vocab_size, vocab_version, vocab_hash
         }
 
     def __enter__(self):
@@ -216,5 +241,5 @@ class WD14Tagger:
     def __repr__(self):
         """String representation."""
         status = "loaded" if self.is_loaded else "unloaded"
-        tokens = "tokens enabled" if self.enable_tokens else "tags only"
-        return f"WD14Tagger(model='{self.model_name}', {status}, {tokens})"
+        vocab_size = len(self.vocabulary.get_all_tags()) if self.vocabulary else "unknown"
+        return f"WD14Tagger(model='{self.model_name}', {status}, vocab_size={vocab_size})"

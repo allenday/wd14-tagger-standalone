@@ -70,7 +70,7 @@ def setup_logging(enable_progress_bar: bool = False):
 
 parser = argparse.ArgumentParser()
 
-group = parser.add_mutually_exclusive_group(required=True)
+group = parser.add_mutually_exclusive_group(required=False)
 group.add_argument('--dir', help='Predictions for all images in the directory')
 group.add_argument('--file', help='Predictions for one file')
 
@@ -135,6 +135,11 @@ parser.add_argument(
     '--sample',
     default='30',
     help='Video sampling mode: "all" (every frame), "keyframes" (scene changes), or integer N (every Nth frame). Default: 30'
+)
+parser.add_argument(
+    '--dump-vocab',
+    action='store_true',
+    help='Dump vocabulary for the specified model and exit'
 )
 def parse_args():
     """Parse command line arguments."""
@@ -448,6 +453,14 @@ def main():
     """Main entry point for the WD14 tagger."""
     args = parse_args()
 
+    # Handle vocab dump early
+    if args.dump_vocab:
+        from tagger.api import WD14Tagger
+        tagger = WD14Tagger(args.model, quiet=True)
+        vocab = tagger.dump_vocab()
+        print(json.dumps(vocab, indent=2))
+        return
+
     # Initialize structured logging
     logger = setup_logging(args.progress_bar)
 
@@ -461,6 +474,10 @@ def main():
     if args.progress_bar:
         interrogator.set_quiet(True)
         logging.getLogger('tagger.interrogator').setLevel(logging.WARNING)
+
+    # Validate arguments
+    if not args.dir and not args.file:
+        parser.error("Must specify either --file or --dir")
 
     # Process based on arguments
     if args.dir:
