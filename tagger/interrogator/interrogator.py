@@ -5,8 +5,9 @@ import structlog
 
 import pandas as pd
 
-from typing import Iterable, Tuple, List, Dict
+from typing import Iterable, Tuple, List, Dict, Optional, Union
 from PIL import Image
+from pathlib import Path
 
 from onnxruntime import InferenceSession, get_available_providers
 
@@ -16,6 +17,7 @@ tag_escape_pattern = re.compile(r'([\\()])')
 class AbsInterrogator:
     model: InferenceSession | None
     tags: pd.DataFrame | None
+    vocabulary: Optional['TagVocabulary']
     @staticmethod
     def postprocess_tags(
         tags: Dict[str, float],
@@ -26,8 +28,10 @@ class AbsInterrogator:
         add_confident_as_weight=False,
         replace_underscore=False,
         replace_underscore_excludes: List[str] = [],
-        escape_tag=False
-    ) -> Dict[str, float]:
+        escape_tag=False,
+        return_tokens=False,
+        vocabulary=None
+    ) -> Union[Dict[str, float], Dict[int, float]]:
         for t in additional_tags:
             tags[t] = 1.0
 
@@ -65,15 +69,40 @@ class AbsInterrogator:
             new_tags.append((new_tag, tags[tag]))
         tags = dict(new_tags)
 
+        # Convert to token IDs if requested
+        if return_tokens:
+            if vocabulary is None:
+                raise ValueError("vocabulary parameter is required when return_tokens=True")
+            return vocabulary.tags_to_token_dict(tags, skip_unknown=True)
+
         return tags
 
     def __init__(self, name: str) -> None:
         self.name = name
         self.providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
         self.quiet = False
+        self.vocabulary = None
 
     def set_quiet(self, quiet: bool) -> None:
         self.quiet = quiet
+
+    def set_vocabulary(self, vocabulary: 'TagVocabulary') -> None:
+        """Set the vocabulary for this interrogator."""
+        self.vocabulary = vocabulary
+
+    def build_vocabulary_from_tags(self) -> 'TagVocabulary':
+        """Build vocabulary from this interrogator's tag list."""
+        from tagger.vocabulary import TagVocabulary
+
+        if not hasattr(self, 'tags') or self.tags is None:
+            self.load()
+
+        vocab = TagVocabulary()
+        if self.tags is not None and 'name' in self.tags.columns:
+            tags = self.tags['name'].tolist()
+            vocab.add_tags_from_list([tag for tag in tags if isinstance(tag, str)])
+
+        return vocab
 
     def load(self):
         raise NotImplementedError()
